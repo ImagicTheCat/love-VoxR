@@ -48,15 +48,38 @@ function VoxR.newSVO(levels, unit)
   }, SVO_meta)
 
   o.p_buffer = ffi.cast("uint8_t*", o.buffer:getFFIPointer())
-  o.vbuffer:setArrayData(o.buffer, 1, 3*base_blocks)
+  o.vbuffer:setArrayData(o.buffer, 1)
   return o
 end
 
+-- allocate children blocks
 local function allocateCBlock(self)
-  if 
+  local index = table.remove(self.available_blocks)
+  if not index then
+    if self.allocated_blocks-self.used_blocks >= 8 then -- new blocks
+      index = self.used_blocks
+      self.used_blocks = index+8
+    else -- not enough memory, double allocated blocks
+      local old_allocated = self.allocated_blocks
+      local old_buffer = self.buffer
+      self.allocated_blocks = self.allocated_blocks*2
+      self.buffer = love.data.newByteData(self.allocated_blocks*3*4)
+      self.p_buffer = ffi.cast("uint8_t*", self.buffer:getFFIPointer())
+      self.vbuffer:release()
+      self.vbuffer = love.graphics.newBuffer({{format = "uint8vec4"}}, self.allocated_blocks*3, {texel=true})
+      ffi.copy(self.p_buffer, old_buffer:getFFIPointer(), old_allocated*3*4)
+      self.vbuffer:setArrayData(self.buffer, 1)
+      old_buffer:release()
+
+      return allocateCBlock(self)
+    end
+  end
+  return index
 end
 
+-- free children blocks (no check, not recursive)
 local function freeCBlock(self, index)
+  table.insert(self.available_cblocks, index)
 end
 
 return VoxR
