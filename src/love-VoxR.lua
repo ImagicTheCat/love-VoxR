@@ -24,3 +24,39 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ]]
+
+local ffi = require("ffi")
+local VoxR = {}
+
+-- SVO
+local SVO = {}
+local SVO_meta = {__index = SVO}
+
+-- Each block is stored as 3 uint8vec4 elements.
+--- (metalness, roughness, emission, flags)
+--- (r, g, b, ...)
+--- (B3, B2, B1, B0): uint32 block index (0-based) of the 8 packed children (0 if none)
+--- The block at index 0 is the root node.
+function VoxR.newSVO(levels, unit)
+  local base_blocks = 64
+  local o = setmetatable({
+    allocated_blocks = base_blocks,
+    used_blocks = 1,
+    available_cblocks = {}, -- 8 packed children blocks indexes (stack)
+    buffer = love.data.newByteData(base_blocks*3*4),
+    vbuffer = love.graphics.newBuffer({{format = "uint8vec4"}}, base_blocks*3, {texel=true})
+  }, SVO_meta)
+
+  o.p_buffer = ffi.cast("uint8_t*", o.buffer:getFFIPointer())
+  o.vbuffer:setArrayData(o.buffer, 1, 3*base_blocks)
+  return o
+end
+
+local function allocateCBlock(self)
+  if 
+end
+
+local function freeCBlock(self, index)
+end
+
+return VoxR
