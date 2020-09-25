@@ -1,0 +1,21 @@
+= love-VoxR
+ifdef::env-github[]
+:tip-caption: :bulb:
+:note-caption: :information_source:
+:important-caption: :heavy_exclamation_mark:
+:caution-caption: :fire:
+:warning-caption: :warning:
+endif::[]
+:toc: left
+:toclevels: 5
+
+`love-VoxR` is a **Vox**el **R**endering LÖVE library.
+
+It aims to be a simple and efficient tool to render voxels. It depends on LÖVE 12.x and is meant to be used in conjunction with https://github.com/ImagicTheCat/love-DPBR[love-DPBR].
+
+== Install
+
+See link:src[].
+
+== API
+
