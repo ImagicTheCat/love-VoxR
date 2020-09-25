@@ -37,6 +37,7 @@ local SVO_meta = {__index = SVO}
 --- (r, g, b, ...)
 --- (B3, B2, B1, B0): uint32 block index (0-based) of the 8 packed children (0 if none)
 --- The block at index 0 is the root node.
+-- Levels go bottom-up, they start at 0 (unit level) to levels-1 (maximum level, the root node).
 function VoxR.newSVO(levels, unit)
   local base_blocks = 64
   local o = setmetatable({
@@ -53,7 +54,7 @@ function VoxR.newSVO(levels, unit)
 end
 
 -- allocate children blocks
-local function allocateCBlock(self)
+local function SVO_allocateCBlock(self)
   local index = table.remove(self.available_blocks)
   if not index then
     if self.allocated_blocks-self.used_blocks >= 8 then -- new blocks
@@ -71,15 +72,20 @@ local function allocateCBlock(self)
       self.vbuffer:setArrayData(self.buffer, 1)
       old_buffer:release()
 
-      return allocateCBlock(self)
+      index = SVO_allocateCBlock(self)
     end
   end
   return index
 end
 
 -- free children blocks (no check, not recursive)
-local function freeCBlock(self, index)
+local function SVO_freeCBlock(self, index)
   table.insert(self.available_cblocks, index)
 end
+
+local function SVO_fill(self, x1, y1, z1, x2, y2, z2, metalness, roughness, emission, r, g, b)
+end
+
+SVO.fill = SVO_fill
 
 return VoxR
