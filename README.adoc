@@ -13,6 +13,8 @@ endif::[]
 
 It aims to be a simple and efficient tool to render voxels. It depends on LÖVE 12.x and is meant to be used in conjunction with https://github.com/ImagicTheCat/love-DPBR[love-DPBR].
 
+See link:example[] (copy the library and launch the directory with LÖVE).
+
 == Install
 
 See link:src[].
