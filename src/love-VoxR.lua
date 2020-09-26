@@ -53,8 +53,8 @@ function VoxR.newSVO(levels, unit)
   local o = setmetatable({
     levels = levels,
     unit = unit,
-    allocated_blocks = base_blocks,
-    used_blocks = 1,
+    allocated_blocks = base_blocks, -- allocated memory
+    used_blocks = 1, -- used memory (segment)
     available_cblocks = {}, -- 8 packed children blocks indexes (stack)
     buffer = love.data.newByteData(base_blocks*12),
     vbuffer = love.graphics.newBuffer({{format = "uint8vec4"}}, base_blocks*3, {texel=true})
@@ -72,7 +72,6 @@ local function SVO_allocateCBlock(self)
     if self.allocated_blocks-self.used_blocks >= 8 then -- new blocks
       index = self.used_blocks
       self.used_blocks = index+8
-      ffi.fill(self.p_buffer+index*12, 12*8)
     else -- not enough memory, double allocated blocks
       local old_allocated = self.allocated_blocks
       local old_buffer = self.buffer
@@ -88,6 +87,7 @@ local function SVO_allocateCBlock(self)
       index = SVO_allocateCBlock(self)
     end
   end
+  ffi.fill(self.p_buffer+index*12, 8*12)
   return index
 end
 
@@ -112,12 +112,12 @@ local function block_cindex(b, v)
 end
 
 -- free 8 packed children blocks
-local function SVO_freeCBlock(self, index)
-  table.insert(self.available_cblocks, index)
+local function SVO_freeCBlock(self, cindex)
+  table.insert(self.available_cblocks, cindex)
   -- recursive
-  local cindex = block_cindex(self.p_buffer+index*12)
-  if cindex ~= 0 then
-    for i=cindex, cindex+8 do SVO_freeCBlock(self, i) end
+  for i=cindex, cindex+7 do
+    local sub_cindex = block_cindex(self.p_buffer+i*12)
+    if sub_cindex ~= 0 then SVO_freeCBlock(self, sub_cindex) end
   end
 end
 
@@ -126,7 +126,7 @@ end
 -- x,y,z: block origin in SVO-voxels coordinates
 -- size: block size (voxels)
 local function SVO_recursive_fill(self, state, index, x, y, z, size)
-  print("SVO fill", index, x, y, z, size)
+--  print("SVO fill", index, x, y, z, size)
   -- compute intersection between block area and fill area
   local x1, x2 = math.max(state.x1, x), math.min(state.x2, x+size)
   local y1, y2 = math.max(state.y1, y), math.min(state.y2, y+size)
@@ -145,16 +145,15 @@ local function SVO_recursive_fill(self, state, index, x, y, z, size)
     -- free children
     local cindex = block_cindex(b)
     if cindex ~= 0 then
-      block_cindex(b, 0)
-      for i=cindex, cindex+8 do SVO_freeCBlock(self, i) end
+      block_cindex(b, 0) -- reset cindex
+      SVO_freeCBlock(self, cindex)
     end
   elseif x1 < x2 and y1 < y2 and z1 < z2 then -- partial (recursion)
-    local b = self.p_buffer+index*12
     -- get/create children blocks
-    local cindex = block_cindex(b)
+    local cindex = block_cindex(self.p_buffer+index*12)
     if cindex == 0 then
       cindex = SVO_allocateCBlock(self)
-      block_cindex(b, cindex)
+      block_cindex(self.p_buffer+index*12, cindex)
     end
     local ssize = size/2
     SVO_recursive_fill(self, state, cindex, x, y, z, ssize)
@@ -188,5 +187,6 @@ end
 function SVO:countBlocks()
   return self.used_blocks-#self.available_cblocks*8
 end
+function SVO:countBytes() return self.allocated_blocks*12 end
 
 return VoxR
