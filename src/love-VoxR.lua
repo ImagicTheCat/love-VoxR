@@ -51,10 +51,12 @@ local SVO_meta = {__index = SVO}
 function VoxR.newSVO(levels, unit)
   local base_blocks = 64
   local o = setmetatable({
+    levels = levels,
+    unit = unit,
     allocated_blocks = base_blocks,
     used_blocks = 1,
     available_cblocks = {}, -- 8 packed children blocks indexes (stack)
-    buffer = love.data.newByteData(base_blocks*3*4),
+    buffer = love.data.newByteData(base_blocks*12),
     vbuffer = love.graphics.newBuffer({{format = "uint8vec4"}}, base_blocks*3, {texel=true})
   }, SVO_meta)
 
@@ -65,12 +67,12 @@ end
 
 -- allocate children blocks
 local function SVO_allocateCBlock(self)
-  local index = table.remove(self.available_blocks)
+  local index = table.remove(self.available_cblocks)
   if not index then
     if self.allocated_blocks-self.used_blocks >= 8 then -- new blocks
       index = self.used_blocks
       self.used_blocks = index+8
-      ffi.fill(self.p_buffer+index, 12*8)
+      ffi.fill(self.p_buffer+index*12, 12*8)
     else -- not enough memory, double allocated blocks
       local old_allocated = self.allocated_blocks
       local old_buffer = self.buffer
@@ -94,8 +96,19 @@ end
 -- v: (optional) value
 local function block_cindex(b, v)
   local dw = ffi.cast("uint32_t*", b)
-  if v then dw[2] = (CINDEX_LE and bswap(v)+0x0fffffff or v)
-  else return CINDEX_LE and bswap(dw[2])+0x0fffffff or dw[2] end
+  if CINDEX_LE then
+    if v then
+      v = bswap(v)
+      if v < 0 then v = v+0x100000000 end
+      dw[2] = v
+    else
+      v = bswap(dw[2])
+      if v < 0 then v = v+0x100000000 end
+      return v
+    end
+  else
+    if v then dw[2] = v else return dw[2] end
+  end
 end
 
 -- free 8 packed children blocks
@@ -113,29 +126,34 @@ end
 -- x,y,z: block origin in SVO-voxels coordinates
 -- size: block size (voxels)
 local function SVO_recursive_fill(self, state, index, x, y, z, size)
+  print("SVO fill", index, x, y, z, size)
   -- compute intersection between block area and fill area
   local x1, x2 = math.max(state.x1, x), math.min(state.x2, x+size)
-  local y1, y2 = math.max(state.y1, x), math.min(state.y2, y+size)
-  local z1, z2 = math.max(state.z1, x), math.min(state.z2, z+size)
+  local y1, y2 = math.max(state.y1, y), math.min(state.y2, y+size)
+  local z1, z2 = math.max(state.z1, z), math.min(state.z2, z+size)
 
   if x1 == x and y1 == y and z1 == z --
     and x2 == x+size and y2 == y+size and z2 == z+size then -- full
     local b = self.p_buffer+index*12
     -- set block data
-    b[0], b[1], b[2], b[3] = state.metalness, state.roughness, state.emission, 0
-    b[4], b[5], b[6], b[7] = state.r, state.g, state.b, 0
+    if state.metalness then
+      b[0], b[1], b[2], b[3] = state.metalness, state.roughness, state.emission, 0x01
+      b[4], b[5], b[6], b[7] = state.r, state.g, state.b, 0
+    else -- empty
+      b[3] = 0
+    end
     -- free children
     local cindex = block_cindex(b)
     if cindex ~= 0 then
       block_cindex(b, 0)
       for i=cindex, cindex+8 do SVO_freeCBlock(self, i) end
     end
-  elseif x1 < x2 or y1 < y2 or z1 < z2 then -- partial (recursion)
+  elseif x1 < x2 and y1 < y2 and z1 < z2 then -- partial (recursion)
     local b = self.p_buffer+index*12
     -- get/create children blocks
     local cindex = block_cindex(b)
     if cindex == 0 then
-      cindex = allocateCBlock(self)
+      cindex = SVO_allocateCBlock(self)
       block_cindex(b, cindex)
     end
     local ssize = size/2
@@ -150,9 +168,25 @@ local function SVO_recursive_fill(self, state, index, x, y, z, size)
   end
 end
 
+-- Fill the SVO with a voxel area.
+-- x1, y1, z1, x2, y2, z2: area boundaries
+-- metalness, roughness, emission, r, g, b: (optional) voxel data (nothing = empty voxels)
 function SVO:fill(x1, y1, z1, x2, y2, z2, metalness, roughness, emission, r, g, b)
+  local state = {
+    x1 = x1, y1 = y1, z1 = z1,
+    x2 = x2, y2 = y2, z2 = z2,
+    metalness = metalness,
+    roughness = roughness,
+    emission = emission,
+    r = r, g = g, b = b
+  }
+  local size = 2^(self.levels-1)
+  SVO_recursive_fill(self, state, 0, -size/2, -size/2, -size/2, size)
 end
 
-SVO.fill = SVO_fill
+-- return effective blocks count (used_blocks - available_cblocks x 8)
+function SVO:countBlocks()
+  return self.used_blocks-#self.available_cblocks*8
+end
 
 return VoxR
