@@ -11,7 +11,7 @@ endif::[]
 
 `love-VoxR` is a **Vox**el **R**endering LÖVE library.
 
-It aims to be a simple and powerful tool to render voxels. It depends on LÖVE 12.x and is meant to be used in conjunction with https://github.com/ImagicTheCat/love-DPBR[love-DPBR].
+It aims to be a simple and powerful tool to render voxels. It depends on LÖVE 12.x with LuaJIT (FFI, bitop, etc) and is meant to be used in conjunction with https://github.com/ImagicTheCat/love-DPBR[love-DPBR].
 
 See link:example[] (copy the library and launch the directory with LÖVE).
 
