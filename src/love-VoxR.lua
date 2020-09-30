@@ -183,7 +183,7 @@ function SVO:fill(x1, y1, z1, x2, y2, z2, metalness, roughness, emission, r, g, 
   SVO_recursive_fill(self, state, 0, -size/2, -size/2, -size/2, size)
 end
 
--- select minimum value in 3 pairs
+-- Select minimum value in 3 pairs.
 -- return r1, r2 or r3
 local function select_min(v1, r1, v2, r2, v3, r3)
   local min = math.min(v1, v2, v3)
@@ -192,13 +192,11 @@ local function select_min(v1, r1, v2, r2, v3, r3)
   else return r3 end
 end
 
-local function SVO_recursive_raycast(self, tx0, ty0, tz0, tx1, ty1, tz1, index, cmask)
+local function SVO_recursive_raycast(self, state, tx0, ty0, tz0, tx1, ty1, tz1, index)
   if tx1 < 0 or ty1 < 0 or tz1 < 0 then return end -- no intersection
-  print("intersect", index)
   -- recursion
   local b = self.p_buffer+index*12
   local cindex = block_cindex(b)
-  if cindex == 0 and band(b[3], 0x01) ~= 0 then print("DONE") return end
   if cindex > 0 then
     local txm, tym, tzm = (tx0+tx1)/2, (ty0+ty1)/2, (tz0+tz1)/2
     -- find entry plane
@@ -213,43 +211,55 @@ local function SVO_recursive_raycast(self, tx0, ty0, tz0, tx1, ty1, tz1, index, 
       node = (txm < tz0 and 4 or 0)+(tym < tz0 and 2 or 0)
     end
     -- iterate on children
-    while node < 8 do
+    while node < 8 and not state.index do
       if node == 0 then
-        SVO_recursive_raycast(self, tx0, ty0, tz0, txm, tym, tzm, cindex+cmask, cmask)
+        SVO_recursive_raycast(self, state, tx0, ty0, tz0, txm, tym, tzm, cindex+state.cmask)
         node = select_min(txm, 4, tym, 2, tzm, 1)
       elseif node == 1 then
-        SVO_recursive_raycast(self, tx0, ty0, tzm, txm, tym, tz1, cindex+bxor(cmask, 1), cmask)
+        SVO_recursive_raycast(self, state, tx0, ty0, tzm, txm, tym, tz1, cindex+bxor(state.cmask, 1))
         node = select_min(txm, 5, tym, 3, tz1, 8)
       elseif node == 2 then
-        SVO_recursive_raycast(self, tx0, tym, tz0, txm, ty1, tzm, cindex+bxor(cmask, 2), cmask)
+        SVO_recursive_raycast(self, state, tx0, tym, tz0, txm, ty1, tzm, cindex+bxor(state.cmask, 2))
         node = select_min(txm, 6, ty1, 8, tzm, 3)
       elseif node == 3 then
-        SVO_recursive_raycast(self, tx0, tym, tzm, txm, ty1, tz1, cindex+bxor(cmask, 3), cmask)
+        SVO_recursive_raycast(self, state, tx0, tym, tzm, txm, ty1, tz1, cindex+bxor(state.cmask, 3))
         node = select_min(txm, 7, ty1, 8, tz1, 8)
       elseif node == 4 then
-        SVO_recursive_raycast(self, txm, ty0, tz0, tx1, tym, tzm, cindex+bxor(cmask, 4), cmask)
+        SVO_recursive_raycast(self, state, txm, ty0, tz0, tx1, tym, tzm, cindex+bxor(state.cmask, 4))
         node = select_min(tx1, 8, tym, 6, tzm, 5)
       elseif node == 5 then
-        SVO_recursive_raycast(self, txm, ty0, tzm, tx1, tym, tz1, cindex+bxor(cmask, 5), cmask)
+        SVO_recursive_raycast(self, state, txm, ty0, tzm, tx1, tym, tz1, cindex+bxor(state.cmask, 5))
         node = select_min(tx1, 8, tym, 7, tz1, 8)
       elseif node == 6 then
-        SVO_recursive_raycast(self, txm, tym, tz0, tx1, ty1, tzm, cindex+bxor(cmask, 6), cmask)
+        SVO_recursive_raycast(self, state, txm, tym, tz0, tx1, ty1, tzm, cindex+bxor(state.cmask, 6))
         node = select_min(tx1, 8, ty1, 8, tzm, 7)
       elseif node == 7 then
-        SVO_recursive_raycast(self, txm, tym, tzm, tx1, ty1, tz1, cindex+bxor(cmask, 7), cmask)
+        SVO_recursive_raycast(self, state, txm, tym, tzm, tx1, ty1, tz1, cindex+bxor(state.cmask, 7))
         node = 8
       end
     end
+  elseif cindex == 0 and band(b[3], 0x01) ~= 0 then -- non-empty leaf, intersection
+    -- compute ray data
+    state.index = index
+    state.px = state.ox+tx0*state.dx
+    state.py = state.oy+ty0*state.dy
+    state.pz = state.oz+tz0*state.dz
   end
 end
 
+-- Ray-casting in SVO space (first full voxel).
+-- return ray state on intersection, nil otherwise
 function SVO:castRay(ox, oy, oz, dx, dy, dz)
   local size = 2^(self.levels-1)*self.unit
+  local state = {
+    ox = ox, oy = oy, oz = oz,
+    dx = dx, dy = dy, dz = dz,
+    cmask = 0
+  }
   -- negative direction generalization (compute next child bit flip mask)
-  local cmask = 0
-  if dx < 0 then ox = size-ox; dx = -dx; cmask = cmask+4 end
-  if dy < 0 then oy = size-oy; dy = -dy; cmask = cmask+2 end
-  if dz < 0 then oz = size-oz; dz = -dz; cmask = cmask+1 end
+  if dx < 0 then ox = size-ox; dx = -dx; state.cmask = state.cmask+4 end
+  if dy < 0 then oy = size-oy; dy = -dy; state.cmask = state.cmask+2 end
+  if dz < 0 then oz = size-oz; dz = -dz; state.cmask = state.cmask+1 end
   -- compute root parameters
   local msize = size/2
   local tx0 = (-msize-ox)/dx
@@ -260,8 +270,10 @@ function SVO:castRay(ox, oy, oz, dx, dy, dz)
   local tz1 = (msize-oz)/dz
   -- check intersection
   if math.max(tx0, ty0, tz0) < math.min(tx1, ty1, tz1) then
-    SVO_recursive_raycast(self, tx0, ty0, tz0, tx1, ty1, tz1, 0, cmask)
+    SVO_recursive_raycast(self, state, tx0, ty0, tz0, tx1, ty1, tz1, 0)
   end
+
+  if state.index then return state end
 end
 
 -- return effective blocks count (used_blocks - available_cblocks x 8)
