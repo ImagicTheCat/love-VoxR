@@ -192,7 +192,8 @@ local function select_min(v1, r1, v2, r2, v3, r3)
   else return r3 end
 end
 
--- Compute parametric tim value with infinity handling.
+-- Compute parametric tim value with infinity handling (parallel ray
+-- generalization).
 -- ti0, ti1: parameters
 -- i1, i2: node axis boundaries
 -- oi: ray origin component
@@ -264,7 +265,7 @@ local function SVO_recursive_raycast(self, state, tx0, ty0, tz0, tx1, ty1, tz1, 
   elseif cindex == 0 and band(b[3], 0x01) ~= 0 then -- non-empty leaf, intersection
     -- compute ray data
     state.index = index
-    --- intersection position
+    --- intersection position (with parallel ray generalization)
     state.px = state.ox+(state.dx ~= 0 and tx0*state.dx or 0)
     state.py = state.oy+(state.dy ~= 0 and ty0*state.dy or 0)
     state.pz = state.oz+(state.dz ~= 0 and tz0*state.dz or 0)
