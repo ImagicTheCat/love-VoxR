@@ -183,6 +183,42 @@ function SVO:fill(x1, y1, z1, x2, y2, z2, metalness, roughness, emission, r, g, 
   SVO_recursive_fill(self, state, 0, -size/2, -size/2, -size/2, size)
 end
 
+local function SVO_recursive_raycast(self, tx0, ty0, tz0, tx1, ty1, tz1, index, cmask)
+  if tx1 < 0 or ty1 < 0 or tz1 < 0 then return end
+  -- recursion
+  local cindex = block_cindex(self.p_buffer+index*12)
+  if cindex > 0 then
+    local txm, tym, tzm = (tx0+tx1)/2, (ty0+ty1)/2, (tz0+tz1)/2
+    -- find entry plane
+    local mt0 = math.min(tx0, ty0, tz0)
+    if mt0 == tx0 then -- YZ
+    elseif mt0 == ty0 then -- XZ
+    else -- XY
+    end
+  end
+end
+
+function SVO:castRay(ox, oy, oz, dx, dy dz)
+  local size = 2^(self.levels-1)*self.unit
+  -- next child bit flip mask
+  local cmask = 0
+  if dx < 0 then ox = size-ox; dx = -dx; cmask = cmask+4 end
+  if dy < 0 then oy = size-oy; dy = -dy; cmask = cmask+2 end
+  if dz < 0 then oz = size-oz; dz = -dz; cmask = cmask+1 end
+  -- compute root pcmaskrcmaskmeters
+  local msize = size/2
+  local tx0 = (-msize-ox)/dx
+  local tx1 = (msize-ox)/dx
+  local ty0 = (-msize-oy)/dy
+  local ty1 = (msize-oy)/dy
+  local tz0 = (-msize-oz)/dz
+  local tz1 = (msize-oz)/dz
+  -- check contact
+  if math.max(tx0, ty0, tz0) < math.min(tx1, ty1, tz1) then
+    SVO_recursive_raycast(self, tx0, ty0, tz0, tx1, ty1, tz1, 0, cmask)
+  end
+end
+
 -- return effective blocks count (used_blocks - available_cblocks x 8)
 function SVO:countBlocks()
   return self.used_blocks-#self.available_cblocks*8
