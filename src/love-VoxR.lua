@@ -215,7 +215,7 @@ local function SVO_recursive_raycast(self, state, tx0, ty0, tz0, tx1, ty1, tz1, 
     local tym = compute_tim(ty0, ty1, y, y+size, state.oy)
     local tzm = compute_tim(tz0, tz1, z, z+size, state.oz)
     -- find entry plane
-    local mt0 = math.min(tx0, ty0, tz0)
+    local mt0 = math.max(tx0, ty0, tz0)
     -- find first child
     local node = 0
     if mt0 == tx0 then -- YZ
@@ -269,6 +269,16 @@ local function SVO_recursive_raycast(self, state, tx0, ty0, tz0, tx1, ty1, tz1, 
     state.px = state.ox+(state.dx ~= 0 and tx0*state.dx or 0)
     state.py = state.oy+(state.dy ~= 0 and ty0*state.dy or 0)
     state.pz = state.oz+(state.dz ~= 0 and tz0*state.dz or 0)
+    --- face normal
+    state.nx, state.ny, state.nz = 0, 0, 0
+    local mt0 = math.max(tx0, ty0, tz0) -- find entry plane
+    if mt0 == tx0 then state.nx = state.dx < 0 and 1 or -1 -- YZ plane
+    elseif mt0 == ty0 then state.ny = state.dy < 0 and 1 or -1 -- XZ plane
+    else state.nz = state.dz < 0 and 1 or -1 end -- XY plane
+    --- voxel coordinates
+    state.vx = math.floor(state.px/self.unit-state.nx*0.5)
+    state.vy = math.floor(state.py/self.unit-state.ny*0.5)
+    state.vz = math.floor(state.pz/self.unit-state.nz*0.5)
   end
 end
 
