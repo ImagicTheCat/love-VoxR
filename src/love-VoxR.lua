@@ -211,9 +211,9 @@ local function SVO_recursive_raycast(self, state, tx0, ty0, tz0, tx1, ty1, tz1, 
   local cindex = block_cindex(b)
   if cindex > 0 then
 --    local txm, tym, tzm = (tx0+tx1)/2, (ty0+ty1)/2, (tz0+tz1)/2
-    local txm = compute_tim(tx0, tx1, x, x+size, state.ox)
-    local tym = compute_tim(ty0, ty1, y, y+size, state.oy)
-    local tzm = compute_tim(tz0, tz1, z, z+size, state.oz)
+    local txm = compute_tim(tx0, tx1, x, x+size, state.ox+state.msize)
+    local tym = compute_tim(ty0, ty1, y, y+size, state.oy+state.msize)
+    local tzm = compute_tim(tz0, tz1, z, z+size, state.oz+state.msize)
     -- find entry plane
     local mt0 = math.max(tx0, ty0, tz0)
     -- find first child
@@ -285,27 +285,31 @@ end
 -- Ray-casting in SVO space (first full voxel).
 -- return ray state on intersection, nil otherwise
 function SVO:castRay(ox, oy, oz, dx, dy, dz)
+  -- The SVO is considered between 0 and size instead of -msize and msize for
+  -- the traversal algorithm.
   local size = 2^(self.levels-1)*self.unit
+  local msize = size/2
   local state = {
     ox = ox, oy = oy, oz = oz,
     dx = dx, dy = dy, dz = dz,
+    msize = msize,
     cmask = 0
   }
+  ox, oy, oz = ox+msize, oy+msize, oz+msize -- normalize coordinates
   -- negative direction generalization (compute next child bit flip mask)
   if dx < 0 then ox = size-ox; dx = -dx; state.cmask = state.cmask+4 end
   if dy < 0 then oy = size-oy; dy = -dy; state.cmask = state.cmask+2 end
   if dz < 0 then oz = size-oz; dz = -dz; state.cmask = state.cmask+1 end
   -- compute root parameters
-  local msize = size/2
-  local tx0 = (-msize-ox)/dx
-  local tx1 = (msize-ox)/dx
-  local ty0 = (-msize-oy)/dy
-  local ty1 = (msize-oy)/dy
-  local tz0 = (-msize-oz)/dz
-  local tz1 = (msize-oz)/dz
+  local tx0 = -ox/dx
+  local tx1 = (size-ox)/dx
+  local ty0 = -oy/dy
+  local ty1 = (size-oy)/dy
+  local tz0 = -oz/dz
+  local tz1 = (size-oz)/dz
   -- check intersection
   if math.max(tx0, ty0, tz0) < math.min(tx1, ty1, tz1) then
-    SVO_recursive_raycast(self, state, tx0, ty0, tz0, tx1, ty1, tz1, 0, -msize, -msize, -msize, size)
+    SVO_recursive_raycast(self, state, tx0, ty0, tz0, tx1, ty1, tz1, 0, 0, 0, 0, size)
   end
 
   if state.index then return state end
