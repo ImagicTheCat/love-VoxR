@@ -38,7 +38,7 @@ function love.load()
   svo:fill(-2^18, -2^18, -2^18, 2^18, 2^18, 2^18)
   print("blocks", svo:countBlocks(), svo:countBytes())
 
-  shader = VoxR.newShaderSVO()
+  shader = VoxR.newShaderSVO(20)
   shader:send("proj", proj)
   shader:send("inv_proj", inv_proj)
 end

@@ -321,6 +321,13 @@ function SVO:countBlocks()
 end
 function SVO:countBytes() return self.allocated_blocks*12 end
 
+function SVO:bindShader(shader)
+  shader:send("unit", self.unit)
+  shader:send("levels", self.levels)
+  shader:send("buffer", self.vbuffer)
+  love.graphics.setShader(shader)
+end
+
 -- Shaders
 
 local SVO_SHADER = [[
@@ -328,6 +335,75 @@ local SVO_SHADER = [[
 
 uniform mat4 proj, inv_proj, view, inv_view;
 uniform usamplerBuffer buffer;
+uniform float unit;
+uniform int levels;
+
+struct SVOrt_Frame{
+  uint cindex, node;
+  vec3 t0, t1, tm, origin;
+  float size;
+};
+
+struct SVOrt_State{
+  SVOrt_Frame frames[$MAX_DEPTH];
+  int fi; // frame index
+  vec3 ro, rd; // original ray
+  uint cmask;
+  bool done;
+};
+
+void SVOrt_new_frame(inout SVOrt_State state, vec3 t0, vec3 t1, uint index, vec3 origin, float size)
+{
+  state.fi += 1;
+  SVOrt_Frame f = state.frames[state.fi];
+  f.t0 = t0;
+  f.t1 = t1;
+  f.origin = origin;
+  f.size = size;
+}
+
+void SVOrt_end_frame(inout SVOrt_State state){ state.fi -= 1; }
+
+void SVOrt_do_recursion(inout SVOrt_State state)
+{
+  SVOrt_Frame f = state.frames[state.fi];
+  if(f.t1.x < 0 || f.t1.y < 0 || f.t1.z < 0){ // no intersection
+    SVOrt_end_frame(state);
+    return;
+  }
+}
+
+bool raytraceSVO(vec3 ro, vec3 rd, out vec3 p, out vec3 n,
+  out vec3 albedo, out vec2 MR, out float emission)
+{
+  // The SVO is considered between 0 and size instead of -msize and msize for
+  // the traversal algorithm.
+  SVOrt_State state;
+  state.ro = ro;
+  state.rd = rd;
+  state.cmask = 0u;
+  state.done = false;
+  state.fi = -1;
+
+  float size = float(2 << (levels-1))*unit;
+  vec3 roN = ro+vec3(size)/2; // normalize ray origin
+  vec3 rdN = rd;
+  // negative direction generalization (compute next child bit flip mask)
+  if(rdN.x < 0){ roN.x = size-roN.x; rdN.x = -rdN.x; state.cmask = state.cmask+4u; }
+  if(rdN.y < 0){ roN.y = size-roN.y; rdN.y = -rdN.y; state.cmask = state.cmask+2u; }
+  if(rdN.z < 0){ roN.z = size-roN.z; rdN.z = -rdN.z; state.cmask = state.cmask+1u; }
+  // compute root parameters
+  vec3 t0 = -roN/rdN;
+  vec3 t1 = (vec3(size)-roN)/rdN;
+  // check intersection
+  if(max(t0.x, max(t0.y, t0.z)) < min(t1.x, min(t1.y, t1.z))){
+    // recursion
+    SVOrt_new_frame(state, t0, t1, 0u, vec3(0), size);
+    while(state.fi >= 0) SVOrt_do_recursion(state);
+  }
+
+  return state.done;
+}
 
 void effect()
 {
@@ -359,8 +435,12 @@ void effect()
 }
 ]]
 
-function VoxR.newShaderSVO()
-  return love.graphics.newShader(SVO_SHADER)
+function VoxR.newShaderSVO(max_depth)
+  -- "$..." template substitution
+  local code = SVO_SHADER:gsub("%$([%w_]+)", {
+    MAX_DEPTH = max_depth
+  })
+  return love.graphics.newShader(code)
 end
 
 return VoxR
