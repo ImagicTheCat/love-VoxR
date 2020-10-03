@@ -321,4 +321,46 @@ function SVO:countBlocks()
 end
 function SVO:countBytes() return self.allocated_blocks*12 end
 
+-- Shaders
+
+local SVO_SHADER = [[
+#pragma language glsl3
+
+uniform mat4 proj, inv_proj, view, inv_view;
+uniform usamplerBuffer buffer;
+
+void effect()
+{
+  // compute ray
+  vec3 ndc = vec3(love_PixelCoord/love_ScreenSize.xy, 0);
+  ndc.y = 1.0-ndc.y;
+  ndc = ndc*2.0-vec3(1);
+  vec4 v = inv_proj*vec4(ndc, 1);
+  v /= v.w;
+  vec3 ro = vec3(inv_view*v);
+  vec3 rd = mat3(inv_view)*normalize(v.xyz);
+
+//  vec3 n = mat3(view)*computeNormal(p);
+  vec3 n = vec3(1,0,0);
+//  vec4 p_ndc = proj*view*vec4(p, 1);
+  vec4 p_ndc = vec4(0,0,0,1);
+  p_ndc /= p_ndc.w;
+
+  // depth
+  gl_FragDepth = p_ndc.z;
+  // albedo
+  love_Canvases[0] = vec4(1,0,0,1);
+  // normal
+  love_Canvases[1] = vec4((n*vec3(1,-1,-1)+vec3(1))/2, 1);
+  // MRA
+  love_Canvases[2] = vec4(0,0.25,1,1);
+  // emission
+  love_Canvases[3] = vec4(0,0,0,1);
+}
+]]
+
+function VoxR.newShaderSVO()
+  return love.graphics.newShader(SVO_SHADER)
+end
+
 return VoxR
