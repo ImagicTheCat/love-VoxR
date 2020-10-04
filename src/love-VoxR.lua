@@ -88,6 +88,7 @@ local function SVO_allocateCBlock(self)
     end
   end
   ffi.fill(self.p_buffer+index*12, 8*12)
+  self.vbuffer:setArrayData(self.buffer, 1+index*3, 3)
   return index
 end
 
@@ -148,12 +149,15 @@ local function SVO_recursive_fill(self, state, index, x, y, z, size)
       block_cindex(b, 0) -- reset cindex
       SVO_freeCBlock(self, cindex)
     end
+    -- update vbuffer
+    self.vbuffer:setArrayData(self.buffer, 1+index*3, 3)
   elseif x1 < x2 and y1 < y2 and z1 < z2 then -- partial (recursion)
     -- get/create children blocks
     local cindex = block_cindex(self.p_buffer+index*12)
     if cindex == 0 then
       cindex = SVO_allocateCBlock(self)
       block_cindex(self.p_buffer+index*12, cindex)
+      self.vbuffer:setArrayData(self.buffer, 1+index*3, 3)
     end
     local ssize = size/2
     SVO_recursive_fill(self, state, cindex, x, y, z, ssize)
@@ -352,7 +356,8 @@ struct SVOrt_State{
   vec3 ro, rd; // original ray
   float msize;
   uint cmask;
-  bool done;
+  int index; // intersected index
+  vec3 p, n;
 };
 
 uint block_cindex(uint index)
@@ -378,11 +383,11 @@ int select_min(float v1, int r1, float v2, int r2, float v3, int r3)
   else return r3;
 }
 
-void SVOrt_end_frame(inout SVOrt_State state){ state.si -= 1; }
+void SVOrt_end_frame(inout SVOrt_State state){ state.si--; }
 
 void SVOrt_new_frame(inout SVOrt_State state, vec3 t0, vec3 t1, uint index, vec3 or, float size)
 {
-  state.si += 1;
+  state.si++;
   SVOrt_Frame f = state.stack[state.si];
   f.t0 = t0;
   f.t1 = t1;
@@ -411,8 +416,20 @@ void SVOrt_new_frame(inout SVOrt_State state, vec3 t0, vec3 t1, uint index, vec3
       f.node = (f.tm.x < t0.z ? 4 : 0)+(f.tm.y < t0.z ? 2 : 0);
     // SVOrt_do_frame will iterate the children from here.
   }
-  else if(f.cindex == 0u && (MREF.z & 0x01u) != 0u){ // non-empty leaf, intersection
-
+  else if(f.cindex == 0u && (MREF.w & 0x01u) != 0u){ // non-empty leaf, intersection
+    // compute ray data
+    state.index = int(index);
+    /// intersection position (with parallel ray generalization)
+    state.p.x = state.ro.x+(state.rd.x != 0.0 ? t0.x*state.rd.x : 0.0);
+    state.p.y = state.ro.y+(state.rd.y != 0.0 ? t0.y*state.rd.y : 0.0);
+    state.p.z = state.ro.z+(state.rd.z != 0.0 ? t0.z*state.rd.z : 0.0);
+    /// face normal
+    state.n = vec3(0.0);
+    float mt0 = max(t0.x, max(t0.y, t0.z)); // find entry plane
+    if(mt0 == t0.x) state.n.x = state.rd.x < 0.0 ? 1.0 : -1.0; // YZ plane
+    else if(mt0 == t0.y) state.n.y = state.rd.y < 0.0 ? 1.0 : -1.0; // XZ plane
+    else state.n.z = state.rd.z < 0.0 ? 1.0 : -1.0; // XY plane
+    SVOrt_end_frame(state);
   }
   else
     SVOrt_end_frame(state);
@@ -421,7 +438,7 @@ void SVOrt_new_frame(inout SVOrt_State state, vec3 t0, vec3 t1, uint index, vec3
 void SVOrt_do_frame(inout SVOrt_State state)
 {
   SVOrt_Frame f = state.stack[state.si];
-  if(f.node < 8 && !state.done){
+  if(f.node < 8 && state.index < 0){
     switch(f.node){
       case 0:
         SVOrt_new_frame(state, f.t0, f.tm, f.cindex+state.cmask, f.or, f.msize);
@@ -449,19 +466,21 @@ void SVOrt_do_frame(inout SVOrt_State state)
         f.node = 8; break;
     }
   }
+  else
+    SVOrt_end_frame(state);
 }
 
 bool raytraceSVO(vec3 ro, vec3 rd, out vec3 p, out vec3 n,
-  out vec3 albedo, out vec2 MR, out float emission)
+  out uvec3 MRE, out uvec3 albedo)
 {
   // The SVO is considered between 0 and size instead of -msize and msize for
   // the traversal algorithm.
   float size = float(1 << (levels-1))*unit;
   SVOrt_State state;
+  state.index = -1;
   state.ro = ro;
   state.rd = rd;
   state.cmask = 0u;
-  state.done = false;
   state.si = -1;
   state.msize = size/2.0;
 
@@ -481,7 +500,16 @@ bool raytraceSVO(vec3 ro, vec3 rd, out vec3 p, out vec3 n,
     while(state.si >= 0) SVOrt_do_frame(state);
   }
 
-  return state.done;
+  if(state.index >= 0){
+    p = state.p;
+    n = state.n;
+    int b = state.index*3;
+    MRE = uvec3(texelFetch(buffer, b));
+    albedo = uvec3(texelFetch(buffer, b+1));
+    return true;
+  }
+  else
+    return false;
 }
 
 void effect()
@@ -495,22 +523,27 @@ void effect()
   vec3 ro = vec3(inv_view*v);
   vec3 rd = mat3(inv_view)*normalize(v.xyz);
 
-//  vec3 n = mat3(view)*computeNormal(p);
-  vec3 n = vec3(1,0,0);
-//  vec4 p_ndc = proj*view*vec4(p, 1);
-  vec4 p_ndc = vec4(0,0,0,1);
+  vec3 p, n;
+  uvec3 MRE, albedo;
+  if(!raytraceSVO(ro, rd, p, n, MRE, albedo)){
+    discard;
+    return;
+  }
+
+  n = mat3(view)*n;
+  vec4 p_ndc = proj*view*vec4(p, 1);
   p_ndc /= p_ndc.w;
 
   // depth
   gl_FragDepth = p_ndc.z;
   // albedo
-  love_Canvases[0] = vec4(1,0,0,1);
+  love_Canvases[0] = vec4(albedo/255.0,1);
   // normal
-  love_Canvases[1] = vec4((n*vec3(1,-1,-1)+vec3(1))/2, 1);
+  love_Canvases[1] = vec4((n*vec3(1,-1,-1)+vec3(1))/2, 1.0);
   // MRA
-  love_Canvases[2] = vec4(0,0.25,1,1);
+  love_Canvases[2] = vec4(MRE.x/255.0, MRE.y/255.0, 1.0, 1.0);
   // emission
-  love_Canvases[3] = vec4(0,0,0,1);
+  love_Canvases[3] = vec4(vec3(MRE.z),1);
 }
 ]]
 

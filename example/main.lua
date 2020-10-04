@@ -4,6 +4,7 @@ local mgl = require("MGL")
 mgl.gen_vec(3); mgl.gen_mat(3)
 mgl.gen_vec(4); mgl.gen_mat(4)
 
+local svo, shader, scene
 local proj = mgl.perspective(math.pi/2, 16/9, 0.05, 50)
 local inv_proj = mgl.inverse(proj)
 
@@ -17,8 +18,6 @@ local function update_cam()
   camera.view = mgl.inverse(camera.model)
 end
 update_cam()
-
-local svo, shader, scene
 
 function love.load()
   love.mouse.setRelativeMode(true)
@@ -35,8 +34,6 @@ function love.load()
   local dir = mgl.normalize(mgl.vec3(-1,0,0))
   local r = svo:castRay(10,0,0.12, dir.x, dir.y, dir.z)
   for k,v in pairs(r or {}) do print(k,v) end
-  svo:fill(-2^18, -2^18, -2^18, 2^18, 2^18, 2^18)
-  print("blocks", svo:countBlocks(), svo:countBytes())
 
   shader = VoxR.newShaderSVO(20)
   shader:send("proj", proj)
@@ -66,7 +63,7 @@ end
 
 function love.draw()
   scene:bindMaterialPass()
-  love.graphics.setShader(shader)
+  svo:bindShader(shader)
   love.graphics.rectangle("fill", 0, 0, 1280, 720)
   love.graphics.setShader()
 
