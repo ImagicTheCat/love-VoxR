@@ -339,37 +339,115 @@ uniform float unit;
 uniform int levels;
 
 struct SVOrt_Frame{
-  uint cindex, node;
-  vec3 t0, t1, tm, origin;
-  float size;
+  uint cindex;
+  int node;
+  vec3 t0, t1, tm;
+  vec3 or; // origin
+  float msize;
 };
 
 struct SVOrt_State{
-  SVOrt_Frame frames[$MAX_DEPTH];
-  int fi; // frame index
+  SVOrt_Frame stack[$MAX_DEPTH]; // stack frames
+  int si; // stack index
   vec3 ro, rd; // original ray
+  float msize;
   uint cmask;
   bool done;
 };
 
-void SVOrt_new_frame(inout SVOrt_State state, vec3 t0, vec3 t1, uint index, vec3 origin, float size)
+uint block_cindex(uint index)
 {
-  state.fi += 1;
-  SVOrt_Frame f = state.frames[state.fi];
-  f.t0 = t0;
-  f.t1 = t1;
-  f.origin = origin;
-  f.size = size;
+  uvec4 dw = texelFetch(buffer, int(index*3u)+2);
+  return (dw.x << 24)+(dw.y << 16)+(dw.z << 8)+dw.w;
 }
 
-void SVOrt_end_frame(inout SVOrt_State state){ state.fi -= 1; }
-
-void SVOrt_do_recursion(inout SVOrt_State state)
+float compute_tim(float ti0, float ti1, float i1, float i2, float oi)
 {
-  SVOrt_Frame f = state.frames[state.fi];
+  float tim = (ti0+ti1)/2.0;
+  if(isnan(tim))
+    return (oi < (i1+i2)/2.0 ? 1.0/0.0 : -1.0/0.0);
+  else
+    return tim;
+}
+
+int select_min(float v1, int r1, float v2, int r2, float v3, int r3)
+{
+  float m = min(v1, min(v2, v3));
+  if(m == v1) return r1;
+  else if(m == v2) return r2;
+  else return r3;
+}
+
+void SVOrt_end_frame(inout SVOrt_State state){ state.si -= 1; }
+
+void SVOrt_new_frame(inout SVOrt_State state, vec3 t0, vec3 t1, uint index, vec3 or, float size)
+{
+  state.si += 1;
+  SVOrt_Frame f = state.stack[state.si];
+  f.t0 = t0;
+  f.t1 = t1;
+  f.or = or; // origin
+  f.msize = size/2.0;
+
   if(f.t1.x < 0 || f.t1.y < 0 || f.t1.z < 0){ // no intersection
     SVOrt_end_frame(state);
     return;
+  }
+
+  uvec4 MREF = texelFetch(buffer, int(index*3u));
+  f.cindex = block_cindex(index*3u);
+  if(f.cindex > 0u){ // recursion
+    f.tm.x = compute_tim(t0.x, t1.x, or.x, or.x+size, state.ro.x+state.msize);
+    f.tm.y = compute_tim(t0.y, t1.y, or.y, or.y+size, state.ro.y+state.msize);
+    f.tm.z = compute_tim(t0.z, t1.z, or.z, or.z+size, state.ro.z+state.msize);
+    // find entry plane
+    float mt0 = max(t0.x, max(t0.y, t0.z));
+    // find first child
+    if(mt0 == t0.x) // YZ
+      f.node = (f.tm.y < t0.x ? 2 : 0)+(f.tm.z < t0.x ? 1 : 0);
+    else if(mt0 == t0.y) // XZ
+      f.node = (f.tm.x < t0.y ? 4 : 0)+(f.tm.z < t0.y ? 1 : 0);
+    else // XY
+      f.node = (f.tm.x < t0.z ? 4 : 0)+(f.tm.y < t0.z ? 2 : 0);
+    // SVOrt_do_frame will iterate the children from here.
+  }
+  else if(f.cindex == 0u && (MREF.z & 0x01u) != 0u){ // non-empty leaf, intersection
+
+  }
+  else
+    SVOrt_end_frame(state);
+}
+
+void SVOrt_do_frame(inout SVOrt_State state)
+{
+  SVOrt_Frame f = state.stack[state.si];
+  if(f.node < 8 && !state.done){
+    switch(f.node){
+      case 0:
+        SVOrt_new_frame(state, f.t0, f.tm, f.cindex+state.cmask, f.or, f.msize);
+        f.node = select_min(f.tm.x, 4, f.tm.y, 2, f.tm.z, 1); break;
+      case 1:
+        SVOrt_new_frame(state, vec3(f.t0.x, f.t0.y, f.tm.z), vec3(f.tm.x, f.tm.y, f.t1.z), f.cindex+state.cmask^1u, vec3(f.or.x, f.or.y, f.or.z+f.msize), f.msize);
+        f.node = select_min(f.tm.x, 5, f.tm.y, 3, f.t1.z, 8); break;
+      case 2:
+        SVOrt_new_frame(state, vec3(f.t0.x, f.tm.y, f.t0.z), vec3(f.tm.x, f.t1.y, f.tm.z), f.cindex+state.cmask^2u, vec3(f.or.x, f.or.y+f.msize, f.or.z), f.msize);
+        f.node = select_min(f.tm.x, 6, f.t1.y, 8, f.tm.z, 3); break;
+      case 3:
+        SVOrt_new_frame(state, vec3(f.t0.x, f.tm.y, f.tm.z), vec3(f.tm.x, f.t1.y, f.t1.z), f.cindex+state.cmask^3u, vec3(f.or.x, f.or.y+f.msize, f.or.z+f.msize), f.msize);
+        f.node = select_min(f.tm.x, 7, f.t1.y, 8, f.t1.z, 8); break;
+      case 4:
+        SVOrt_new_frame(state, vec3(f.tm.x, f.t0.y, f.t0.z), vec3(f.t1.x, f.tm.y, f.tm.z), f.cindex+state.cmask^4u, vec3(f.or.x+f.msize, f.or.y, f.or.z), f.msize);
+        f.node = select_min(f.t1.x, 8, f.tm.y, 6, f.tm.z, 5); break;
+      case 5:
+        SVOrt_new_frame(state, vec3(f.tm.x, f.t0.y, f.tm.z), vec3(f.t1.x, f.tm.y, f.t1.z), f.cindex+state.cmask^5u, vec3(f.or.x+f.msize, f.or.y, f.or.z+f.msize), f.msize);
+        f.node = select_min(f.t1.x, 8, f.tm.y, 7, f.t1.z, 8); break;
+      case 6:
+        SVOrt_new_frame(state, vec3(f.tm.x, f.tm.y, f.t0.z), vec3(f.t1.x, f.t1.y, f.tm.z), f.cindex+state.cmask^6u, vec3(f.or.x+f.msize, f.or.y+f.msize, f.or.z), f.msize);
+        f.node = select_min(f.t1.x, 8, f.t1.y, 8, f.tm.z, 7); break;
+      case 7:
+        SVOrt_new_frame(state, f.tm, f.t1, f.cindex+state.cmask^7u, f.or+vec3(f.msize), f.msize);
+        f.node = 8; break;
+    }
   }
 }
 
@@ -378,15 +456,16 @@ bool raytraceSVO(vec3 ro, vec3 rd, out vec3 p, out vec3 n,
 {
   // The SVO is considered between 0 and size instead of -msize and msize for
   // the traversal algorithm.
+  float size = float(1 << (levels-1))*unit;
   SVOrt_State state;
   state.ro = ro;
   state.rd = rd;
   state.cmask = 0u;
   state.done = false;
-  state.fi = -1;
+  state.si = -1;
+  state.msize = size/2.0;
 
-  float size = float(2 << (levels-1))*unit;
-  vec3 roN = ro+vec3(size)/2; // normalize ray origin
+  vec3 roN = ro+vec3(state.msize); // normalize ray origin
   vec3 rdN = rd;
   // negative direction generalization (compute next child bit flip mask)
   if(rdN.x < 0){ roN.x = size-roN.x; rdN.x = -rdN.x; state.cmask = state.cmask+4u; }
@@ -399,7 +478,7 @@ bool raytraceSVO(vec3 ro, vec3 rd, out vec3 p, out vec3 n,
   if(max(t0.x, max(t0.y, t0.z)) < min(t1.x, min(t1.y, t1.z))){
     // recursion
     SVOrt_new_frame(state, t0, t1, 0u, vec3(0), size);
-    while(state.fi >= 0) SVOrt_do_recursion(state);
+    while(state.si >= 0) SVOrt_do_frame(state);
   }
 
   return state.done;
