@@ -397,8 +397,7 @@ void SVOrt_begin_frame(inout SVOrt_State state, inout SVOrt_Frame f, vec3 t0, ve
     return;
   }
 
-  uvec4 MREF = texelFetch(buffer, int(index*3u));
-  f.cindex = block_cindex(index*3u);
+  f.cindex = block_cindex(index);
   if(f.cindex > 0u){ // recursion
     f.tm.x = compute_tim(t0.x, t1.x, or.x, or.x+size, state.ro.x+state.msize);
     f.tm.y = compute_tim(t0.y, t1.y, or.y, or.y+size, state.ro.y+state.msize);
@@ -414,23 +413,24 @@ void SVOrt_begin_frame(inout SVOrt_State state, inout SVOrt_Frame f, vec3 t0, ve
       f.node = (f.tm.x < t0.z ? 4 : 0)+(f.tm.y < t0.z ? 2 : 0);
     // Will iterate the children from here.
   }
-  else if(f.cindex == 0u && (MREF.w & 0x01u) != 0u){ // non-empty leaf, intersection
-    // compute ray data
-    state.index = int(index);
-    /// intersection position (with parallel ray generalization)
-    state.p.x = state.ro.x+(state.rd.x != 0.0 ? t0.x*state.rd.x : 0.0);
-    state.p.y = state.ro.y+(state.rd.y != 0.0 ? t0.y*state.rd.y : 0.0);
-    state.p.z = state.ro.z+(state.rd.z != 0.0 ? t0.z*state.rd.z : 0.0);
-    /// face normal
-    state.n = vec3(0.0);
-    float mt0 = max(t0.x, max(t0.y, t0.z)); // find entry plane
-    if(mt0 == t0.x) state.n.x = state.rd.x < 0.0 ? 1.0 : -1.0; // YZ plane
-    else if(mt0 == t0.y) state.n.y = state.rd.y < 0.0 ? 1.0 : -1.0; // XZ plane
-    else state.n.z = state.rd.z < 0.0 ? 1.0 : -1.0; // XY plane
+  else{
+    uvec4 MREF = texelFetch(buffer, int(index*3u));
+    if((MREF.w & 0x01u) != 0u){ // non-empty leaf, intersection
+      // compute ray data
+      state.index = int(index);
+      /// intersection position (with parallel ray generalization)
+      state.p.x = state.ro.x+(state.rd.x != 0.0 ? t0.x*state.rd.x : 0.0);
+      state.p.y = state.ro.y+(state.rd.y != 0.0 ? t0.y*state.rd.y : 0.0);
+      state.p.z = state.ro.z+(state.rd.z != 0.0 ? t0.z*state.rd.z : 0.0);
+      /// face normal
+      state.n = vec3(0.0);
+      float mt0 = max(t0.x, max(t0.y, t0.z)); // find entry plane
+      if(mt0 == t0.x) state.n.x = state.rd.x < 0.0 ? 1.0 : -1.0; // YZ plane
+      else if(mt0 == t0.y) state.n.y = state.rd.y < 0.0 ? 1.0 : -1.0; // XZ plane
+      else state.n.z = state.rd.z < 0.0 ? 1.0 : -1.0; // XY plane
+    }
     state.si--; // end frame
   }
-  else
-    state.si--; // end frame
 }
 
 bool raytraceSVO(vec3 ro, vec3 rd, out vec3 p, out vec3 n,
@@ -471,25 +471,25 @@ bool raytraceSVO(vec3 ro, vec3 rd, out vec3 p, out vec3 n,
             SVOrt_begin_frame(state, stack[si+1], f.t0, f.tm, f.cindex+state.cmask, f.or, f.msize);
             stack[si].node = select_min(f.tm.x, 4, f.tm.y, 2, f.tm.z, 1); break;
           case 1:
-            SVOrt_begin_frame(state, stack[si+1], vec3(f.t0.x, f.t0.y, f.tm.z), vec3(f.tm.x, f.tm.y, f.t1.z), f.cindex+state.cmask^1u, vec3(f.or.x, f.or.y, f.or.z+f.msize), f.msize);
+            SVOrt_begin_frame(state, stack[si+1], vec3(f.t0.x, f.t0.y, f.tm.z), vec3(f.tm.x, f.tm.y, f.t1.z), f.cindex+(state.cmask^1u), vec3(f.or.x, f.or.y, f.or.z+f.msize), f.msize);
             stack[si].node = select_min(f.tm.x, 5, f.tm.y, 3, f.t1.z, 8); break;
           case 2:
-            SVOrt_begin_frame(state, stack[si+1], vec3(f.t0.x, f.tm.y, f.t0.z), vec3(f.tm.x, f.t1.y, f.tm.z), f.cindex+state.cmask^2u, vec3(f.or.x, f.or.y+f.msize, f.or.z), f.msize);
+            SVOrt_begin_frame(state, stack[si+1], vec3(f.t0.x, f.tm.y, f.t0.z), vec3(f.tm.x, f.t1.y, f.tm.z), f.cindex+(state.cmask^2u), vec3(f.or.x, f.or.y+f.msize, f.or.z), f.msize);
             stack[si].node = select_min(f.tm.x, 6, f.t1.y, 8, f.tm.z, 3); break;
           case 3:
-            SVOrt_begin_frame(state, stack[si+1], vec3(f.t0.x, f.tm.y, f.tm.z), vec3(f.tm.x, f.t1.y, f.t1.z), f.cindex+state.cmask^3u, vec3(f.or.x, f.or.y+f.msize, f.or.z+f.msize), f.msize);
+            SVOrt_begin_frame(state, stack[si+1], vec3(f.t0.x, f.tm.y, f.tm.z), vec3(f.tm.x, f.t1.y, f.t1.z), f.cindex+(state.cmask^3u), vec3(f.or.x, f.or.y+f.msize, f.or.z+f.msize), f.msize);
             stack[si].node = select_min(f.tm.x, 7, f.t1.y, 8, f.t1.z, 8); break;
           case 4:
-            SVOrt_begin_frame(state, stack[si+1], vec3(f.tm.x, f.t0.y, f.t0.z), vec3(f.t1.x, f.tm.y, f.tm.z), f.cindex+state.cmask^4u, vec3(f.or.x+f.msize, f.or.y, f.or.z), f.msize);
+            SVOrt_begin_frame(state, stack[si+1], vec3(f.tm.x, f.t0.y, f.t0.z), vec3(f.t1.x, f.tm.y, f.tm.z), f.cindex+(state.cmask^4u), vec3(f.or.x+f.msize, f.or.y, f.or.z), f.msize);
             stack[si].node = select_min(f.t1.x, 8, f.tm.y, 6, f.tm.z, 5); break;
           case 5:
-            SVOrt_begin_frame(state, stack[si+1], vec3(f.tm.x, f.t0.y, f.tm.z), vec3(f.t1.x, f.tm.y, f.t1.z), f.cindex+state.cmask^5u, vec3(f.or.x+f.msize, f.or.y, f.or.z+f.msize), f.msize);
+            SVOrt_begin_frame(state, stack[si+1], vec3(f.tm.x, f.t0.y, f.tm.z), vec3(f.t1.x, f.tm.y, f.t1.z), f.cindex+(state.cmask^5u), vec3(f.or.x+f.msize, f.or.y, f.or.z+f.msize), f.msize);
             stack[si].node = select_min(f.t1.x, 8, f.tm.y, 7, f.t1.z, 8); break;
           case 6:
-            SVOrt_begin_frame(state, stack[si+1], vec3(f.tm.x, f.tm.y, f.t0.z), vec3(f.t1.x, f.t1.y, f.tm.z), f.cindex+state.cmask^6u, vec3(f.or.x+f.msize, f.or.y+f.msize, f.or.z), f.msize);
+            SVOrt_begin_frame(state, stack[si+1], vec3(f.tm.x, f.tm.y, f.t0.z), vec3(f.t1.x, f.t1.y, f.tm.z), f.cindex+(state.cmask^6u), vec3(f.or.x+f.msize, f.or.y+f.msize, f.or.z), f.msize);
             stack[si].node = select_min(f.t1.x, 8, f.t1.y, 8, f.tm.z, 7); break;
           case 7:
-            SVOrt_begin_frame(state, stack[si+1], f.tm, f.t1, f.cindex+state.cmask^7u, f.or+vec3(f.msize), f.msize);
+            SVOrt_begin_frame(state, stack[si+1], f.tm, f.t1, f.cindex+(state.cmask^7u), f.or+vec3(f.msize), f.msize);
             stack[si].node = 8; break;
         }
       }
