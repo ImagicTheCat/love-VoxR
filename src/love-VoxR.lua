@@ -88,7 +88,8 @@ local function SVO_allocateCBlock(self)
     end
   end
   ffi.fill(self.p_buffer+index*12, 8*12)
-  self.vbuffer:setArrayData(self.buffer, 1+index*3, 3)
+  local view = love.data.newDataView(self.buffer, index*12, 8*12)
+  self.vbuffer:setArrayData(view, 1+index*3)
   return index
 end
 
@@ -150,14 +151,16 @@ local function SVO_recursive_fill(self, state, index, x, y, z, size)
       SVO_freeCBlock(self, cindex)
     end
     -- update vbuffer
-    self.vbuffer:setArrayData(self.buffer, 1+index*3, 3)
+    local view = love.data.newDataView(self.buffer, index*12, 12)
+    self.vbuffer:setArrayData(view, 1+index*3)
   elseif x1 < x2 and y1 < y2 and z1 < z2 then -- partial (recursion)
     -- get/create children blocks
     local cindex = block_cindex(self.p_buffer+index*12)
     if cindex == 0 then
       cindex = SVO_allocateCBlock(self)
       block_cindex(self.p_buffer+index*12, cindex)
-      self.vbuffer:setArrayData(self.buffer, 1+index*3, 3)
+      local view = love.data.newDataView(self.buffer, index*12, 12)
+      self.vbuffer:setArrayData(view, 1+index*3)
     end
     local ssize = size/2
     SVO_recursive_fill(self, state, cindex, x, y, z, ssize)
@@ -524,10 +527,8 @@ void effect()
 
   vec3 p, n;
   uvec3 MRE, albedo;
-  if(!raytraceSVO(ro, rd, p, n, MRE, albedo)){
+  if(!raytraceSVO(ro, rd, p, n, MRE, albedo))
     discard;
-    return;
-  }
 
   n = mat3(view)*n;
   vec4 p_ndc = proj*view*vec4(p, 1);
