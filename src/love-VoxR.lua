@@ -325,10 +325,11 @@ function SVO:countBlocks()
 end
 function SVO:countBytes() return self.allocated_blocks*12 end
 
-function SVO:bindShader(shader)
+function SVO:bindShader(shader, max_its)
   shader:send("unit", self.unit)
   shader:send("levels", self.levels)
   shader:send("buffer", self.vbuffer)
+  shader:send("max_its", max_its or 100)
   love.graphics.setShader(shader)
 end
 
@@ -341,6 +342,7 @@ uniform mat4 proj, inv_proj, view, inv_view;
 uniform usamplerBuffer buffer;
 uniform float unit;
 uniform int levels;
+uniform int max_its;
 
 struct SVOrt_Frame{
   uint cindex;
@@ -449,17 +451,18 @@ bool raytraceSVO(vec3 ro, vec3 rd, out vec3 p, out vec3 n,
   vec3 roN = ro+vec3(state.msize); // normalize ray origin
   vec3 rdN = rd;
   // negative direction generalization (compute next child bit flip mask)
-  if(rdN.x < 0){ roN.x = size-roN.x; rdN.x = -rdN.x; state.cmask = state.cmask+4u; }
-  if(rdN.y < 0){ roN.y = size-roN.y; rdN.y = -rdN.y; state.cmask = state.cmask+2u; }
-  if(rdN.z < 0){ roN.z = size-roN.z; rdN.z = -rdN.z; state.cmask = state.cmask+1u; }
+  if(rdN.x < 0){ roN.x = size-roN.x; rdN.x = -rdN.x; state.cmask += 4u; }
+  if(rdN.y < 0){ roN.y = size-roN.y; rdN.y = -rdN.y; state.cmask += 2u; }
+  if(rdN.z < 0){ roN.z = size-roN.z; rdN.z = -rdN.z; state.cmask += 1u; }
   // compute root parameters
   vec3 t0 = -roN/rdN;
   vec3 t1 = (vec3(size)-roN)/rdN;
   // check intersection
   if(max(t0.x, max(t0.y, t0.z)) < min(t1.x, min(t1.y, t1.z))){
     // recursion
+    int i = 0;
     SVOrt_begin_frame(state, stack[state.si+1], t0, t1, 0u, vec3(0), size);
-    while(state.si >= 0){
+    while(state.si >= 0 && i < max_its){
       int si = state.si;
       SVOrt_Frame f = stack[si];
       if(f.node < 8 && state.index < 0){
@@ -492,6 +495,7 @@ bool raytraceSVO(vec3 ro, vec3 rd, out vec3 p, out vec3 n,
       }
       else
         state.si--; // end frame
+      i++;
     }
   }
 

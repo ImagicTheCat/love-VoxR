@@ -12,7 +12,7 @@ local speed = 5
 local ax = mgl.vec3(1,0,0)
 local ay = mgl.vec3(0,1,0)
 local az = mgl.vec3(0,0,1)
-local camera = {p = mgl.vec3(0,0,-2.5), phi = 0, theta = 0}
+local camera = {p = mgl.vec3(-2.5,0,0), phi = 0, theta = 0}
 local function update_cam()
   camera.model = mgl.translate(camera.p)*mgl.rotate(ay, camera.phi)*mgl.rotate(ax, camera.theta)
   camera.view = mgl.inverse(camera.model)
@@ -29,8 +29,9 @@ function love.load()
   scene:setAntiAliasing("FXAA")
 
   svo = VoxR.newSVO(20, 0.125)
-  --svo:fill(0,0,0, 2^13,1,1, 0,125,0, 255,0,0)
-  svo:fill(0,0,0, 2^13,2^13,2^13, 0,125,0, 255,0,0)
+  svo:fill(0,0,0, 2^13,1,1, 0,125,0, 255,0,0)
+  --svo:fill(-2^18,-2^18,-2^18, 2^18,2^18,2^18, 0,125,0, 255,0,0)
+  --svo:fill(0,0,0, 1,1,1, 0,125,0, 255,0,0)
   print("blocks", svo:countBlocks(), svo:countBytes())
   local dir = mgl.normalize(mgl.vec3(-1,0,0))
   local r = svo:castRay(10,0,0.12, dir.x, dir.y, dir.z)
@@ -69,6 +70,7 @@ function love.draw()
   love.graphics.setShader()
 
   scene:bindLightPass()
+  scene:drawAmbientLight(0.1)
   scene:drawEmissionLight()
   scene:drawPointLight(0,0,0.1,100,25)
 
