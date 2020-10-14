@@ -29,6 +29,8 @@ function love.load()
   scene:setAntiAliasing("FXAA")
   scene:setAmbientBRDF(love.graphics.newImage("BRDF_LUT.exr"))
 
+  local world = require("world")
+
   svo = VoxR.newSVO(17, 0.125)
   --svo:fill(0,0,0, 2^13,1,1, 0,125,0, 255,0,0)
   --svo:fill(-2^18,-2^18,-2^18, 2^18,2^18,2^18, 0,125,0, 255,0,0)
