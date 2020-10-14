@@ -41,17 +41,16 @@ end
 local function freeCBlock(self, cindex)
   -- write new available index
   self.f_alloc:seek("set", 8+self.available_cblocks*4)
-  self.f_alloc:write(love.data.pack("string", ">I4", index))
+  self.f_alloc:write(love.data.pack("string", ">I4", cindex))
   -- update count
   self.available_cblocks = self.available_cblocks+1
-  self.f_alloc:write(love.data.pack("string", ">I4", self.available_cblocks))
   self.f_alloc:seek("set", 4)
+  self.f_alloc:write(love.data.pack("string", ">I4", self.available_cblocks))
   -- recursive
-  self.f_blocks:seek("set", cindex*12+8)
   for i=cindex, cindex+7 do
+    self.f_blocks:seek("set", i*12+8)
     local sub_cindex = love.data.unpack(">I4", self.f_blocks:read(4))
     if sub_cindex ~= 0 then freeCBlock(self, sub_cindex) end
-    self.f_blocks:seek("cur", 12)
   end
 end
 
@@ -60,7 +59,7 @@ end
 -- x,y,z: block origin in SVO-voxels coordinates
 -- size: block size (voxels)
 local function recursive_fill(self, state, index, x, y, z, size)
-  print("SVO fill", index, x, y, z, size)
+  --print("SVO fill", index, x, y, z, size)
   -- compute intersection between block area and fill area
   local x1, x2 = math.max(state.x1, x), math.min(state.x2, x+size)
   local y1, y2 = math.max(state.y1, y), math.min(state.y2, y+size)
@@ -106,6 +105,7 @@ local function recursive_fill(self, state, index, x, y, z, size)
     recursive_fill(self, state, cindex+5, x+ssize, y, z+ssize, ssize)
     recursive_fill(self, state, cindex+6, x+ssize, y+ssize, z, ssize)
     recursive_fill(self, state, cindex+7, x+ssize, y+ssize, z+ssize, ssize)
+    -- TODO: aggregate
   end
 end
 
@@ -125,6 +125,8 @@ function world:fill(x1, y1, z1, x2, y2, z2, metalness, roughness, emission, r, g
   recursive_fill(self, state, 0, -size/2, -size/2, -size/2, size)
 end
 
-world:fill(0,0,0, 10,10,10, 0,125,0, 255,0,0)
+world:fill(0,0,0, 300,10,10, 0,125,0, 255,0,0)
+--world:fill(0,0,0, 10,10,10, 0,125,0, 255,0,0)
+world:fill(-300,-300,-300, 300,300,300)
 
 return world
