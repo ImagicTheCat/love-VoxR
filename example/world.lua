@@ -59,7 +59,7 @@ end
 -- x,y,z: block origin in SVO-voxels coordinates
 -- size: block size (voxels)
 local function recursive_fill(self, state, index, x, y, z, size)
-  --print("SVO fill", index, x, y, z, size)
+--  print("SVO fill", index, x, y, z, size)
   -- compute intersection between block area and fill area
   local x1, x2 = math.max(state.x1, x), math.min(state.x2, x+size)
   local y1, y2 = math.max(state.y1, y), math.min(state.y2, y+size)
@@ -75,8 +75,8 @@ local function recursive_fill(self, state, index, x, y, z, size)
         state.r, state.g, state.b, 0
       ))
     else -- empty
-      self.f_blocks:seek("set", index*12+3)
-      self.f_blocks:write(love.data.pack("string", "B", 0))
+      self.f_blocks:seek("set", index*12)
+      self.f_blocks:write(string.rep("\0", 8))
     end
     -- free children
     self.f_blocks:seek("set", index*12+8)
@@ -91,21 +91,23 @@ local function recursive_fill(self, state, index, x, y, z, size)
     -- get/create children blocks
     self.f_blocks:seek("set", index*12+8)
     local cindex = love.data.unpack(">I4", self.f_blocks:read(4))
-    if cindex == 0 then
+    if cindex == 0 and state.metalness then -- create sub-blocks if non-empty
       cindex = allocateCBlock(self)
       self.f_blocks:seek("set", index*12+8)
       self.f_blocks:write(love.data.pack("string", ">I4", cindex))
     end
-    local ssize = size/2
-    recursive_fill(self, state, cindex, x, y, z, ssize)
-    recursive_fill(self, state, cindex+1, x, y, z+ssize, ssize)
-    recursive_fill(self, state, cindex+2, x, y+ssize, z, ssize)
-    recursive_fill(self, state, cindex+3, x, y+ssize, z+ssize, ssize)
-    recursive_fill(self, state, cindex+4, x+ssize, y, z, ssize)
-    recursive_fill(self, state, cindex+5, x+ssize, y, z+ssize, ssize)
-    recursive_fill(self, state, cindex+6, x+ssize, y+ssize, z, ssize)
-    recursive_fill(self, state, cindex+7, x+ssize, y+ssize, z+ssize, ssize)
-    -- TODO: aggregate
+    if cindex ~= 0 then
+      local ssize = size/2
+      recursive_fill(self, state, cindex, x, y, z, ssize)
+      recursive_fill(self, state, cindex+1, x, y, z+ssize, ssize)
+      recursive_fill(self, state, cindex+2, x, y+ssize, z, ssize)
+      recursive_fill(self, state, cindex+3, x, y+ssize, z+ssize, ssize)
+      recursive_fill(self, state, cindex+4, x+ssize, y, z, ssize)
+      recursive_fill(self, state, cindex+5, x+ssize, y, z+ssize, ssize)
+      recursive_fill(self, state, cindex+6, x+ssize, y+ssize, z, ssize)
+      recursive_fill(self, state, cindex+7, x+ssize, y+ssize, z+ssize, ssize)
+      -- TODO: aggregate
+    end
   end
 end
 
@@ -125,8 +127,10 @@ function world:fill(x1, y1, z1, x2, y2, z2, metalness, roughness, emission, r, g
   recursive_fill(self, state, 0, -size/2, -size/2, -size/2, size)
 end
 
-world:fill(0,0,0, 300,10,10, 0,125,0, 255,0,0)
---world:fill(0,0,0, 10,10,10, 0,125,0, 255,0,0)
-world:fill(-300,-300,-300, 300,300,300)
+--world:fill(0,0,0, 300,10,10, 0,125,0, 255,0,0)
+world:fill(0,0,0, 10,10,10, 0,125,0, 255,0,0)
+print("filled", world.used_blocks, world.available_cblocks)
+world:fill(-300000,-300000,-300000, 300000,300000,300000)
+print("cleared", world.used_blocks, world.available_cblocks)
 
 return world
