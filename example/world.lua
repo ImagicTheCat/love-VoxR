@@ -91,7 +91,7 @@ local function recursive_fill(self, state, index, x, y, z, size)
     -- get/create children blocks
     self.f_blocks:seek("set", index*12+8)
     local cindex = love.data.unpack(">I4", self.f_blocks:read(4))
-    if cindex == 0 and state.metalness then -- create sub-blocks if non-empty
+    if cindex == 0 and state.metalness then -- create sub-blocks if non-empty fill
       cindex = allocateCBlock(self)
       self.f_blocks:seek("set", index*12+8)
       self.f_blocks:write(love.data.pack("string", ">I4", cindex))
