@@ -65,7 +65,8 @@ function VoxR.newSVO(levels, unit)
   return o
 end
 
--- allocate children blocks
+-- Allocate children blocks.
+-- This may reallocate the buffer (invalidate references).
 local function SVO_allocateCBlock(self)
   local index = table.remove(self.available_cblocks)
   if not index then
@@ -113,7 +114,7 @@ local function block_cindex(b, v)
   end
 end
 
--- free 8 packed children blocks
+-- Free 8 packed children blocks.
 local function SVO_freeCBlock(self, cindex)
   table.insert(self.available_cblocks, cindex)
   -- recursive
@@ -121,6 +122,43 @@ local function SVO_freeCBlock(self, cindex)
     local sub_cindex = block_cindex(self.p_buffer+i*12)
     if sub_cindex ~= 0 then SVO_freeCBlock(self, sub_cindex) end
   end
+end
+
+-- di, si: dst and src indices
+local function SVO_recursive_update(self, tree, di, si, level)
+  if level >= self.levels then return end -- invalid level
+  local sb = tree+si*12
+  local db = self.p_buffer+di*12
+  local update = (band(sb[3], 0x01) ~= 0)
+  if update then ffi.copy(db, sb, 8) end
+  local s_cindex = block_cindex(sb)
+  if s_cindex ~= 0 then -- recursion
+    -- get/create dst children blocks
+    local d_cindex = block_cindex(db)
+    if d_cindex == 0 then -- create/subdivide dst
+      d_cindex = SVO_allocateCBlock(self)
+      block_cindex(self.p_buffer+di*12, d_cindex) -- buffer may be invalidated
+    end
+    for i=0,7 do
+      SVO_recursive_update(self, tree, d_cindex+i, s_cindex+i, level+1)
+    end
+  elseif update then -- update from src leaf: remove children
+    local d_cindex = block_cindex(db)
+    if d_cindex ~= 0 then
+      block_cindex(db, 0) -- reset cindex
+      SVO_freeCBlock(self, d_cindex)
+    end
+  end
+end
+
+-- Update SVO with a sparse tree.
+-- The passed tree must be well formed to prevent out of bounds reads/loops.
+-- When a node is not skipped, it will update node data including the
+-- presence/absense of children.
+--
+-- tree: uint8_t pointer to data in the same format as the SVO, but with the highest bit flag set to 1 to skip the current node update; this allows sparse updates.
+function SVO:updateTree(tree)
+  SVO_recursive_update(self, tree, 0, 0, 0)
 end
 
 -- state: fill data
