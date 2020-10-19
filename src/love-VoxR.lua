@@ -126,6 +126,7 @@ end
 
 -- di, si: dst and src indices
 local function SVO_recursive_update(self, tree, di, si, level)
+  print("update", di, si, level)
   if level >= self.levels then return end -- invalid level
   local sb = tree+si*12
   local db = self.p_buffer+di*12
@@ -156,7 +157,7 @@ end
 -- When a node is not skipped, it will update node data including the
 -- presence/absense of children.
 --
--- tree: uint8_t pointer to data in the same format as the SVO, but with the highest bit flag set to 1 to skip the current node update; this allows sparse updates.
+-- tree: const uint8_t pointer to data in the same format as the SVO, but with the highest bit flag set to 1 to skip the current node update; this allows sparse updates.
 function SVO:updateTree(tree)
   SVO_recursive_update(self, tree, 0, 0, 0)
 end

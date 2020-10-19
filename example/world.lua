@@ -1,5 +1,6 @@
 -- Basic file based SVO world implementation.
 local bit = require("bit")
+local ffi = require("ffi")
 
 local SAVE_DIR = love.filesystem.getSaveDirectory()
 local world = {levels = 17}
@@ -15,6 +16,13 @@ world.f_blocks = io.open(SAVE_DIR.."/world.blocks", "r+b")
 world.used_blocks, world.available_cblocks = love.data.unpack(">I4I4", world.f_alloc:read(8))
 
 -- METHODS
+
+function world:setSVO(svo)
+  self.svo = svo
+  self.f_blocks:seek("set", 0)
+  local data = self.f_blocks:read("*a")
+  svo:updateTree(ffi.cast("const uint8_t*", data))
+end
 
 local function allocateCBlock(self)
   local cindex
@@ -169,11 +177,5 @@ function world:fill(x1, y1, z1, x2, y2, z2, metalness, roughness, emission, r, g
   local size = 2^(self.levels-1)
   recursive_fill(self, state, 0, -size/2, -size/2, -size/2, size)
 end
-
---world:fill(0,0,0, 300,10,10, 0,125,0, 255,0,0)
-world:fill(0,0,0, 10,10,10, 0,125,0, 255,0,0)
-print("filled", world.used_blocks, world.available_cblocks)
-world:fill(-300000,-300000,-300000, 300000,300000,300000)
-print("cleared", world.used_blocks, world.available_cblocks)
 
 return world

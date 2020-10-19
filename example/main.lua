@@ -30,8 +30,13 @@ function love.load()
   scene:setAmbientBRDF(love.graphics.newImage("BRDF_LUT.exr"))
 
   local world = require("world")
+  world:fill(0,0,0, 10,1,1, 0,125,0, 255,0,0)
+  world:fill(0,0,0, 1,10,1, 0,125,0, 0,255,0)
+  world:fill(0,0,0, 1,1,10, 0,125,0, 0,0,255)
+  print("world blocks", world.used_blocks-world.available_cblocks*8)
 
   svo = VoxR.newSVO(17, 0.125)
+  world:setSVO(svo)
   --svo:fill(0,0,0, 2^13,1,1, 0,125,0, 255,0,0)
   --svo:fill(-2^18,-2^18,-2^18, 2^18,2^18,2^18, 0,125,0, 255,0,0)
   svo:fill(0,0,0, 10,1,1, 0,125,0, 255,0,0)
