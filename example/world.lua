@@ -1,4 +1,5 @@
 -- Basic file based SVO world implementation.
+local bit = require("bit")
 
 local SAVE_DIR = love.filesystem.getSaveDirectory()
 local world = {levels = 17}
@@ -89,10 +90,11 @@ local function recursive_fill(self, state, index, x, y, z, size)
     end
   elseif x1 < x2 and y1 < y2 and z1 < z2 then -- partial (recursion)
     -- get/create children blocks
-    self.f_blocks:seek("set", index*12+8)
+    self.f_blocks:seek("set", index*12)
+    local block_data = self.f_blocks:read(8)
     local cindex = love.data.unpack(">I4", self.f_blocks:read(4))
-    -- TODO: prevent division if write data is equivalent to current leaf
-    if cindex == 0 and state.metalness then -- create sub-blocks if non-empty fill
+    -- subdivide if write data is different than leaf data
+    if cindex == 0 and block_data ~= state.write_data then
       cindex = allocateCBlock(self)
       self.f_blocks:seek("set", index*12+8)
       self.f_blocks:write(love.data.pack("string", ">I4", cindex))
@@ -107,7 +109,40 @@ local function recursive_fill(self, state, index, x, y, z, size)
       recursive_fill(self, state, cindex+5, x+ssize, y, z+ssize, ssize)
       recursive_fill(self, state, cindex+6, x+ssize, y+ssize, z, ssize)
       recursive_fill(self, state, cindex+7, x+ssize, y+ssize, z+ssize, ssize)
-      -- TODO: aggregate
+      -- aggregate
+      self.f_blocks:seek("set", cindex*12)
+      local children_data = self.f_blocks:read(12*8)
+      if children_data == string.rep(children_data:sub(1, 12), 8) then -- identical children, make leaf
+        self.f_blocks:seek("set", index*12)
+        self.f_blocks:write(children_data:sub(1, 8))
+        self.f_blocks:write(love.data.pack("string", ">I4", 0))
+        freeCBlock(self, cindex)
+      else -- compute aggregate
+        local t_metalness, t_roughness, t_emission, t_r, t_g, t_b, t_a = 0,0,0,0,0,0,0,0
+        local full_count = 0
+        for i=0,7 do
+          local metalness, roughness, emission, flags, r, g, b, a = love.data.unpack("BBBBBBBB", children_data:sub(i*12+1, i*12+8))
+          if bit.band(flags, 0x01) ~= 0 then
+            full_count = full_count+1
+            t_metalness = t_metalness+metalness
+            t_roughness = t_roughness+roughness
+            t_emission = t_emission+emission
+            t_r = t_r+r; t_g = t_g+g; t_b = t_b+b; t_a = t_a+a
+          end
+        end
+        t_metalness = math.floor(t_metalness/8)
+        t_roughness = math.floor(t_roughness/8)
+        t_emission = math.floor(t_emission/8) -- TODO: non-linear mean fix
+        t_r = math.floor(t_r/8)
+        t_g = math.floor(t_g/8)
+        t_b = math.floor(t_b/8)
+        t_a = math.floor(t_a/8)
+        self.f_blocks:seek("set", index*12)
+        self.f_blocks:write(love.data.pack("string", "BBBBBBBB",
+          t_metalness, t_roughness, t_emission, full_count >= 4 and 0x01 or 0x00,
+          t_r, t_g, t_b, t_a
+        ))
+      end
     end
   end
 end
@@ -124,6 +159,13 @@ function world:fill(x1, y1, z1, x2, y2, z2, metalness, roughness, emission, r, g
     emission = emission,
     r = r, g = g, b = b
   }
+  if state.metalness then
+    state.write_data = love.data.pack("string", "BBBBBBBB",
+      state.metalness, state.roughness, state.emission, 0x01,
+      state.r, state.g, state.b, 0)
+  else
+    state.write_data = string.rep("\0", 8)
+  end
   local size = 2^(self.levels-1)
   recursive_fill(self, state, 0, -size/2, -size/2, -size/2, size)
 end
