@@ -43,11 +43,13 @@ local function allocateCBlock(self)
   -- fill with zero
   self.f_blocks:seek("set", cindex*12)
   self.f_blocks:write(string.rep("\0", 12*8))
+  print("D:alloc", cindex)
   return cindex
 end
 
 -- recursive
 local function freeCBlock(self, cindex)
+  print("D:free", cindex)
   -- write new available index
   self.f_alloc:seek("set", 8+self.available_cblocks*4)
   self.f_alloc:write(love.data.pack("string", ">I4", cindex))

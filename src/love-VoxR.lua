@@ -69,11 +69,9 @@ end
 -- This may reallocate the buffer (invalidate references).
 local function SVO_allocateCBlock(self)
   local index = table.remove(self.available_cblocks)
-  if not index then
-    if self.allocated_blocks-self.used_blocks >= 8 then -- new blocks
-      index = self.used_blocks
-      self.used_blocks = index+8
-    else -- not enough memory, double allocated blocks
+  if not index then -- new blocks
+    if self.allocated_blocks-self.used_blocks < 8 then
+      -- not enough memory, double allocated blocks
       local old_allocated = self.allocated_blocks
       local old_buffer = self.buffer
       self.allocated_blocks = self.allocated_blocks*2
@@ -84,13 +82,14 @@ local function SVO_allocateCBlock(self)
       ffi.copy(self.p_buffer, old_buffer:getFFIPointer(), old_allocated*12)
       self.vbuffer:setArrayData(self.buffer, 1)
       old_buffer:release()
-
-      index = SVO_allocateCBlock(self)
     end
+    index = self.used_blocks
+    self.used_blocks = index+8
   end
   ffi.fill(self.p_buffer+index*12, 8*12)
   local view = love.data.newDataView(self.buffer, index*12, 8*12)
   self.vbuffer:setArrayData(view, 1+index*3)
+  print("M:alloc", index)
   return index
 end
 
@@ -116,6 +115,7 @@ end
 
 -- Free 8 packed children blocks.
 local function SVO_freeCBlock(self, cindex)
+  print("M:free", cindex)
   table.insert(self.available_cblocks, cindex)
   -- recursive
   for i=cindex, cindex+7 do
@@ -130,7 +130,7 @@ local function SVO_recursive_update(self, tree, di, si, level)
   if level >= self.levels then return end -- invalid level
   local sb = tree+si*12
   local db = self.p_buffer+di*12
-  local update = (band(sb[3], 0x01) ~= 0)
+  local update = (band(sb[3], 0x80) ~= 0)
   if update then ffi.copy(db, sb, 8) end
   local s_cindex = block_cindex(sb)
   if s_cindex ~= 0 then -- recursion

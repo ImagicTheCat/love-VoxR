@@ -39,9 +39,11 @@ function love.load()
   world:setSVO(svo)
   --svo:fill(0,0,0, 2^13,1,1, 0,125,0, 255,0,0)
   --svo:fill(-2^18,-2^18,-2^18, 2^18,2^18,2^18, 0,125,0, 255,0,0)
+  --[[
   svo:fill(0,0,0, 10,1,1, 0,125,0, 255,0,0)
   svo:fill(0,0,0, 1,10,1, 0,125,0, 0,255,0)
   svo:fill(0,0,0, 1,1,10, 0,125,0, 0,0,255)
+  --]]
   print("blocks", svo:countBlocks(), svo:countBytes())
   local dir = mgl.normalize(mgl.vec3(-1,0,0))
   local r = svo:castRay(10,0,0.12, dir.x, dir.y, dir.z)
