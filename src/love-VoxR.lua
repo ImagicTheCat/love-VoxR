@@ -94,7 +94,6 @@ local function SVO_allocateCBlock(self)
   end
   ffi.fill(self.p_buffer+index*12, 8*12)
   for watcher in pairs(self.watchers) do watcher:updateBlocks(self, index, 8) end
-  print("M:alloc", index)
   return index
 end
 
@@ -120,7 +119,6 @@ end
 
 -- Free 8 packed children blocks.
 local function SVO_freeCBlock(self, cindex)
-  print("M:free", cindex)
   table.insert(self.available_cblocks, cindex)
   -- recursive
   for i=cindex, cindex+7 do
@@ -131,11 +129,10 @@ end
 
 -- di, si: dst and src indices
 local function SVO_recursive_update(self, tree, di, si, level)
-  print("update", di, si, level)
   if level >= self.levels then return end -- invalid level
   local sb = tree+si*12
   local db = self.p_buffer+di*12
-  local update = (band(sb[3], 0x80) ~= 0)
+  local update = (band(sb[3], 0x80) == 0)
   local dst_updated = update
   if update then ffi.copy(db, sb, 8) end
   local s_cindex = block_cindex(sb)
@@ -170,72 +167,6 @@ end
 -- tree: const uint8_t pointer to data in the same format as the SVO, but with the highest bit flag set to 1 to skip the current node update; this allows sparse updates.
 function SVO:updateTree(tree)
   SVO_recursive_update(self, tree, 0, 0, 0)
-end
-
--- state: fill data
--- index: block index
--- x,y,z: block origin in SVO-voxels coordinates
--- size: block size (voxels)
-local function SVO_recursive_fill(self, state, index, x, y, z, size)
---  print("SVO fill", index, x, y, z, size)
-  -- compute intersection between block area and fill area
-  local x1, x2 = math.max(state.x1, x), math.min(state.x2, x+size)
-  local y1, y2 = math.max(state.y1, y), math.min(state.y2, y+size)
-  local z1, z2 = math.max(state.z1, z), math.min(state.z2, z+size)
-
-  if x1 == x and y1 == y and z1 == z --
-    and x2 == x+size and y2 == y+size and z2 == z+size then -- full
-    local b = self.p_buffer+index*12
-    -- set block data
-    if state.metalness then
-      b[0], b[1], b[2], b[3] = state.metalness, state.roughness, state.emission, 0x01
-      b[4], b[5], b[6], b[7] = state.r, state.g, state.b, 0
-    else -- empty
-      b[3] = 0
-    end
-    -- free children
-    local cindex = block_cindex(b)
-    if cindex ~= 0 then
-      block_cindex(b, 0) -- reset cindex
-      SVO_freeCBlock(self, cindex)
-    end
-    -- watchers update
-    for watcher in pairs(self.watchers) do watcher:updateBlocks(self, index, 1) end
-  elseif x1 < x2 and y1 < y2 and z1 < z2 then -- partial (recursion)
-    -- get/create children blocks
-    local cindex = block_cindex(self.p_buffer+index*12)
-    if cindex == 0 then
-      cindex = SVO_allocateCBlock(self)
-      block_cindex(self.p_buffer+index*12, cindex)
-      -- watchers update
-      for watcher in pairs(self.watchers) do watcher:updateBlocks(self, index, 1) end
-    end
-    local ssize = size/2
-    SVO_recursive_fill(self, state, cindex, x, y, z, ssize)
-    SVO_recursive_fill(self, state, cindex+1, x, y, z+ssize, ssize)
-    SVO_recursive_fill(self, state, cindex+2, x, y+ssize, z, ssize)
-    SVO_recursive_fill(self, state, cindex+3, x, y+ssize, z+ssize, ssize)
-    SVO_recursive_fill(self, state, cindex+4, x+ssize, y, z, ssize)
-    SVO_recursive_fill(self, state, cindex+5, x+ssize, y, z+ssize, ssize)
-    SVO_recursive_fill(self, state, cindex+6, x+ssize, y+ssize, z, ssize)
-    SVO_recursive_fill(self, state, cindex+7, x+ssize, y+ssize, z+ssize, ssize)
-  end
-end
-
--- Fill the SVO with a voxel area.
--- x1, y1, z1, x2, y2, z2: area boundaries
--- metalness, roughness, emission, r, g, b: (optional) voxel data (nothing = empty voxels)
-function SVO:fill(x1, y1, z1, x2, y2, z2, metalness, roughness, emission, r, g, b)
-  local state = {
-    x1 = x1, y1 = y1, z1 = z1,
-    x2 = x2, y2 = y2, z2 = z2,
-    metalness = metalness,
-    roughness = roughness,
-    emission = emission,
-    r = r, g = g, b = b
-  }
-  local size = 2^(self.levels-1)
-  SVO_recursive_fill(self, state, 0, -size/2, -size/2, -size/2, size)
 end
 
 -- Select minimum value in 3 pairs.

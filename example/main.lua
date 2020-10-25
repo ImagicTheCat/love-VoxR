@@ -33,23 +33,17 @@ function love.load()
   world:fill(0,0,0, 10,1,1, 0,125,0, 255,0,0)
   world:fill(0,0,0, 1,10,1, 0,125,0, 0,255,0)
   world:fill(0,0,0, 1,1,10, 0,125,0, 0,0,255)
-  print("world blocks", world.used_blocks-world.available_cblocks*8)
+--  world:fill(-2^16, -2^16, -2^16, 2^16, 2^16, 2^16)
+  print("world SVO blocks/bytes", world.used_blocks-world.available_cblocks*8, world.used_blocks*12)
 
   svo = VoxR.newSVO(17, 0.125)
   world:setSVO(svo)
-  --svo:fill(0,0,0, 2^13,1,1, 0,125,0, 255,0,0)
-  --svo:fill(-2^18,-2^18,-2^18, 2^18,2^18,2^18, 0,125,0, 255,0,0)
-  --[[
-  svo:fill(0,0,0, 10,1,1, 0,125,0, 255,0,0)
-  svo:fill(0,0,0, 1,10,1, 0,125,0, 0,255,0)
-  svo:fill(0,0,0, 1,1,10, 0,125,0, 0,0,255)
-  --]]
-  print("blocks", svo:countBlocks(), svo:countBytes())
+  print("view SVO blocks/bytes", svo:countBlocks(), svo:countBytes())
   local dir = mgl.normalize(mgl.vec3(-1,0,0))
   local r = svo:castRay(10,0,0.12, dir.x, dir.y, dir.z)
   for k,v in pairs(r or {}) do print(k,v) end
 
-  raytracer = VoxR.newRayTracerSVO(svo)
+  raytracer = VoxR.newSVORayTracer(svo)
   raytracer.shader:send("proj", proj)
   raytracer.shader:send("inv_proj", inv_proj)
 end

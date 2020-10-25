@@ -43,13 +43,11 @@ local function allocateCBlock(self)
   -- fill with zero
   self.f_blocks:seek("set", cindex*12)
   self.f_blocks:write(string.rep("\0", 12*8))
-  print("D:alloc", cindex)
   return cindex
 end
 
 -- recursive
 local function freeCBlock(self, cindex)
-  print("D:free", cindex)
   -- write new available index
   self.f_alloc:seek("set", 8+self.available_cblocks*4)
   self.f_alloc:write(love.data.pack("string", ">I4", cindex))
@@ -79,16 +77,8 @@ local function recursive_fill(self, state, index, x, y, z, size)
   if x1 == x and y1 == y and z1 == z --
     and x2 == x+size and y2 == y+size and z2 == z+size then -- full
     -- set block data
-    if state.metalness then
-      self.f_blocks:seek("set", index*12)
-      self.f_blocks:write(love.data.pack("string", "BBBBBBBB",
-        state.metalness, state.roughness, state.emission, 0x01,
-        state.r, state.g, state.b, 0
-      ))
-    else -- empty
-      self.f_blocks:seek("set", index*12)
-      self.f_blocks:write(string.rep("\0", 8))
-    end
+    self.f_blocks:seek("set", index*12)
+    self.f_blocks:write(state.write_data)
     -- free children
     self.f_blocks:seek("set", index*12+8)
     local cindex = love.data.unpack(">I4", self.f_blocks:read(4))
