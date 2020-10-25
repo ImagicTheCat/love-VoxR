@@ -57,13 +57,21 @@ function VoxR.newSVO(levels, unit)
     used_blocks = 1, -- used memory (segment)
     available_cblocks = {}, -- 8 packed children blocks indexes (stack)
     buffer = love.data.newByteData(base_blocks*12),
-    vbuffer = love.graphics.newBuffer({{format = "uint8vec4"}}, base_blocks*3, {texel=true})
+    watchers = {} -- map of observer objects
   }, SVO_meta)
 
   o.p_buffer = ffi.cast("uint8_t*", o.buffer:getFFIPointer())
-  o.vbuffer:setArrayData(o.buffer, 1)
   return o
 end
+
+-- Add a watcher (table with expected methods) to the SVO.
+-- Methods:
+--- update(svo, index, size): called when a SVO is updated
+---- index: block start index
+---- size: number of blocks updated
+--- reallocate(svo): called when the SVO buffer is reallocated
+function SVO:addWatcher(watcher) self.watchers[watcher] = true end
+function SVO:removeWatcher(watcher) self.watchers[watcher] = nil end
 
 -- Allocate children blocks.
 -- This may reallocate the buffer (invalidate references).
@@ -77,18 +85,15 @@ local function SVO_allocateCBlock(self)
       self.allocated_blocks = self.allocated_blocks*2
       self.buffer = love.data.newByteData(self.allocated_blocks*12)
       self.p_buffer = ffi.cast("uint8_t*", self.buffer:getFFIPointer())
-      self.vbuffer:release()
-      self.vbuffer = love.graphics.newBuffer({{format = "uint8vec4"}}, self.allocated_blocks*3, {texel=true})
       ffi.copy(self.p_buffer, old_buffer:getFFIPointer(), old_allocated*12)
-      self.vbuffer:setArrayData(self.buffer, 1)
       old_buffer:release()
+      for watcher in pairs(self.watchers) do watcher:reallocate(self) end
     end
     index = self.used_blocks
     self.used_blocks = index+8
   end
   ffi.fill(self.p_buffer+index*12, 8*12)
-  local view = love.data.newDataView(self.buffer, index*12, 8*12)
-  self.vbuffer:setArrayData(view, 1+index*3)
+  for watcher in pairs(self.watchers) do watcher:updateBlocks(self, index, 8) end
   print("M:alloc", index)
   return index
 end
@@ -131,6 +136,7 @@ local function SVO_recursive_update(self, tree, di, si, level)
   local sb = tree+si*12
   local db = self.p_buffer+di*12
   local update = (band(sb[3], 0x80) ~= 0)
+  local dst_updated = update
   if update then ffi.copy(db, sb, 8) end
   local s_cindex = block_cindex(sb)
   if s_cindex ~= 0 then -- recursion
@@ -139,6 +145,7 @@ local function SVO_recursive_update(self, tree, di, si, level)
     if d_cindex == 0 then -- create/subdivide dst
       d_cindex = SVO_allocateCBlock(self)
       block_cindex(self.p_buffer+di*12, d_cindex) -- buffer may be invalidated
+      dst_updated = true
     end
     for i=0,7 do
       SVO_recursive_update(self, tree, d_cindex+i, s_cindex+i, level+1)
@@ -149,6 +156,9 @@ local function SVO_recursive_update(self, tree, di, si, level)
       block_cindex(db, 0) -- reset cindex
       SVO_freeCBlock(self, d_cindex)
     end
+  end
+  if dst_updated then
+    for watcher in pairs(self.watchers) do watcher:updateBlocks(self, di, 1) end
   end
 end
 
@@ -189,17 +199,16 @@ local function SVO_recursive_fill(self, state, index, x, y, z, size)
       block_cindex(b, 0) -- reset cindex
       SVO_freeCBlock(self, cindex)
     end
-    -- update vbuffer
-    local view = love.data.newDataView(self.buffer, index*12, 12)
-    self.vbuffer:setArrayData(view, 1+index*3)
+    -- watchers update
+    for watcher in pairs(self.watchers) do watcher:updateBlocks(self, index, 1) end
   elseif x1 < x2 and y1 < y2 and z1 < z2 then -- partial (recursion)
     -- get/create children blocks
     local cindex = block_cindex(self.p_buffer+index*12)
     if cindex == 0 then
       cindex = SVO_allocateCBlock(self)
       block_cindex(self.p_buffer+index*12, cindex)
-      local view = love.data.newDataView(self.buffer, index*12, 12)
-      self.vbuffer:setArrayData(view, 1+index*3)
+      -- watchers update
+      for watcher in pairs(self.watchers) do watcher:updateBlocks(self, index, 1) end
     end
     local ssize = size/2
     SVO_recursive_fill(self, state, cindex, x, y, z, ssize)
@@ -366,14 +375,6 @@ function SVO:countBlocks()
   return self.used_blocks-#self.available_cblocks*8
 end
 function SVO:countBytes() return self.allocated_blocks*12 end
-
-function SVO:bindShader(shader, max_its)
-  shader:send("unit", self.unit)
-  shader:send("levels", self.levels)
-  shader:send("buffer", self.vbuffer)
-  shader:send("max_its", max_its or 100)
-  love.graphics.setShader(shader)
-end
 
 -- Shaders
 
@@ -586,12 +587,54 @@ void effect()
 }
 ]]
 
-function VoxR.newShaderSVO(max_depth)
+function VoxR.newSVORayTracerShader(max_depth)
   -- "$..." template substitution
   local code = SVO_SHADER:gsub("%$([%w_]+)", {
     MAX_DEPTH = max_depth
   })
   return love.graphics.newShader(code)
+end
+
+-- Renderers
+
+--- Ray-tracer
+local RayTracerSVO = {}
+local RayTracerSVO_meta = {__index = RayTracerSVO}
+
+-- shader: (optional) ray tracer shader (create a SVORayTracerShader by default)
+function VoxR.newSVORayTracer(svo, shader)
+  local o = setmetatable({
+    svo = svo,
+    shader = shader or VoxR.newSVORayTracerShader(svo.levels)
+  }, RayTracerSVO_meta)
+  o.vbuffer = love.graphics.newBuffer({{format = "uint8vec4"}}, svo.allocated_blocks*3, {texel=true})
+  o.vbuffer:setArrayData(svo.buffer, 1)
+  svo:addWatcher(o)
+  return o
+end
+
+function RayTracerSVO:bindShader(max_its)
+  self.shader:send("unit", self.svo.unit)
+  self.shader:send("levels", self.svo.levels)
+  self.shader:send("buffer", self.vbuffer)
+  self.shader:send("max_its", max_its or 100)
+  love.graphics.setShader(self.shader)
+end
+
+-- Close watcher.
+function RayTracerSVO:close() self.svo:removeWatcher(self) end
+
+-- event
+function RayTracerSVO:updateBlocks(svo, index, size)
+  local view = love.data.newDataView(svo.buffer, index*12, size*12)
+  self.vbuffer:setArrayData(view, 1+index*3)
+end
+
+-- event
+function RayTracerSVO:reallocate(svo)
+  self.vbuffer:release()
+  self.vbuffer = love.graphics.newBuffer({{format = "uint8vec4"}}, svo.allocated_blocks*3, {texel=true})
+  self.vbuffer:setArrayData(svo.buffer, 1)
 end
 
 return VoxR
