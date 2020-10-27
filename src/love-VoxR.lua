@@ -568,4 +568,7 @@ function RayTracerSVO:reallocate(svo)
   self.vbuffer:setArrayData(svo.buffer, 1)
 end
 
+-- helpers
+VoxR.block_cindex = block_cindex
+
 return VoxR

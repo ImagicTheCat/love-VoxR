@@ -38,6 +38,7 @@ function love.load()
 
   svo = VoxR.newSVO(17, 0.125)
   world:setSVO(svo)
+  world:updateView(0,0,0, 50, 3)
   print("view SVO blocks/bytes", svo:countBlocks(), svo:countBytes())
   local dir = mgl.normalize(mgl.vec3(-1,0,0))
   local r = svo:castRay(10,0,0.12, dir.x, dir.y, dir.z)

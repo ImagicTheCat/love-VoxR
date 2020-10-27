@@ -1,6 +1,7 @@
 -- Basic file based SVO world implementation.
 local bit = require("bit")
 local ffi = require("ffi")
+local VoxR = require("love-VoxR")
 
 local SAVE_DIR = love.filesystem.getSaveDirectory()
 local world = {levels = 17, unit = 0.125}
@@ -171,17 +172,31 @@ function world:fill(x1, y1, z1, x2, y2, z2, metalness, roughness, emission, r, g
   recursive_fill(self, state, 0, -size/2, -size/2, -size/2, size)
 end
 
+-- Add/remove level of details by building a sparse update SVO based on the
+-- current view tree while updating it.
+--
+-- x,y,z,size: block position/size (meters)
 -- wi: world block index
--- vi: view update buffer block index
--- vnode: view tree node
-local function recursive_update_view(self, state, wi, vi, vnode, x, y, z, size)
+-- vi: update-view buffer block index
+-- pvnode: parent view tree node
+-- ci: child index (from parent)
+-- lvl: recursion level
+local function recursive_update_view(self, state, wi, vi, pvnode, ci, lvl, x, y, z, size)
+  -- compute distance between block (center) and view
+  local dx, dy, dz = x+size/2-state.x, y+size/2-state.y, z+size/2-state.z
+  local dist = math.sqrt(dx*dx+dy*dy+dz*dz)
+  -- compute required LOD
+  local lod = self.levels-1-(dist > state.min_dist and math.floor(math.log(dist-state.min_dist+1)/math.log(2)) or 0)
+  local vnode = pvnode and pvnode[ci]
+  if vnode and vnode.full then return end -- sub-tree is already loaded
+  print("block", wi, vi, ci, x, y, z, size, dist, lod)
   -- read world block
   self.f_blocks:seek("set", wi*12)
   local block_data = self.f_blocks:read(8)
   local w_cindex = love.data.unpack(">I4", self.f_blocks:read(4))
   if w_cindex ~= 0 then -- recursion
-    -- allocate update view buffer children
-    if state.allocated-self.used < 8 then
+    -- allocate update-view buffer children
+    if state.allocated-state.used < 8 then
       -- not enough memory, double allocated blocks
       local old_allocated = state.allocated
       local old_buffer = state.buffer
@@ -193,16 +208,17 @@ local function recursive_update_view(self, state, wi, vi, vnode, x, y, z, size)
     end
     local v_cindex = state.used
     state.used = state.used+8
+    VoxR.block_cindex(state.p_buffer+vi*12, v_cindex)
     -- do recursion
     local ssize = size/2
-    recursive_fill(self, state, w_cindex, v_cindex, vnode[0], x, y, z, ssize)
-    recursive_fill(self, state, w_cindex+1, v_cindex+1, vnode[1], x, y, z+ssize, ssize)
-    recursive_fill(self, state, w_cindex+2, v_cindex+2, vnode[2], x, y+ssize, z, ssize)
-    recursive_fill(self, state, w_cindex+3, v_cindex+3, vnode[3], x, y+ssize, z+ssize, ssize)
-    recursive_fill(self, state, w_cindex+4, v_cindex+4, vnode[4], x+ssize, y, z, ssize)
-    recursive_fill(self, state, w_cindex+5, v_cindex+5, vnode[5], x+ssize, y, z+ssize, ssize)
-    recursive_fill(self, state, w_cindex+6, v_cindex+6, vnode[6], x+ssize, y+ssize, z, ssize)
-    recursive_fill(self, state, w_cindex+7, v_cindex+7, vnode[7], x+ssize, y+ssize, z+ssize, ssize)
+    recursive_update_view(self, state, w_cindex, v_cindex, vnode, 0, lvl+1, x, y, z, ssize)
+    recursive_update_view(self, state, w_cindex+1, v_cindex+1, vnode, 1, lvl+1, x, y, z+ssize, ssize)
+    recursive_update_view(self, state, w_cindex+2, v_cindex+2, vnode, 2, lvl+1, x, y+ssize, z, ssize)
+    recursive_update_view(self, state, w_cindex+3, v_cindex+3, vnode, 3, lvl+1, x, y+ssize, z+ssize, ssize)
+    recursive_update_view(self, state, w_cindex+4, v_cindex+4, vnode, 4, lvl+1, x+ssize, y, z, ssize)
+    recursive_update_view(self, state, w_cindex+5, v_cindex+5, vnode, 5, lvl+1, x+ssize, y, z+ssize, ssize)
+    recursive_update_view(self, state, w_cindex+6, v_cindex+6, vnode, 6, lvl+1, x+ssize, y+ssize, z, ssize)
+    recursive_update_view(self, state, w_cindex+7, v_cindex+7, vnode, 7, lvl+1, x+ssize, y+ssize, z+ssize, ssize)
   end
 end
 
@@ -222,7 +238,8 @@ function world:updateView(x, y, z, min_dist, leaf_lod_level)
   state.buffer = love.data.newByteData(state.allocated*12)
   state.p_buffer = ffi.cast("uint8_t*", state.buffer:getFFIPointer())
 
-  recursive_update_view(self, state, 0, 0, self.view_tree, -size/2, -size/2, -size/2, size)
+  local size = 2^(self.levels-1)*self.unit
+  recursive_update_view(self, state, 0, 0, {[0] = self.view_tree}, 0, 0, -size/2, -size/2, -size/2, size)
 end
 
 return world
