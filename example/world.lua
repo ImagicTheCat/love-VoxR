@@ -1,3 +1,6 @@
+-- https://github.com/ImagicTheCat/love-VoxR
+-- MIT license (see LICENSE or src/love-VoxR.lua)
+
 -- Basic file based SVO world implementation.
 local bit = require("bit")
 local ffi = require("ffi")

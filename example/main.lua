@@ -1,3 +1,6 @@
+-- https://github.com/ImagicTheCat/love-VoxR
+-- MIT license (see LICENSE or src/love-VoxR.lua)
+
 local VoxR = require("love-VoxR")
 local DPBR = require("love-DPBR")
 local mgl = require("MGL")
