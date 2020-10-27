@@ -3,7 +3,8 @@ local bit = require("bit")
 local ffi = require("ffi")
 
 local SAVE_DIR = love.filesystem.getSaveDirectory()
-local world = {levels = 17}
+local world = {levels = 17, unit = 0.125}
+world.view_tree = {}
 -- open data files
 local init = (not love.filesystem.getInfo("world.alloc") or not love.filesystem.getInfo("world.blocks"))
 if init then
@@ -168,6 +169,60 @@ function world:fill(x1, y1, z1, x2, y2, z2, metalness, roughness, emission, r, g
   end
   local size = 2^(self.levels-1)
   recursive_fill(self, state, 0, -size/2, -size/2, -size/2, size)
+end
+
+-- wi: world block index
+-- vi: view update buffer block index
+-- vnode: view tree node
+local function recursive_update_view(self, state, wi, vi, vnode, x, y, z, size)
+  -- read world block
+  self.f_blocks:seek("set", wi*12)
+  local block_data = self.f_blocks:read(8)
+  local w_cindex = love.data.unpack(">I4", self.f_blocks:read(4))
+  if w_cindex ~= 0 then -- recursion
+    -- allocate update view buffer children
+    if state.allocated-self.used < 8 then
+      -- not enough memory, double allocated blocks
+      local old_allocated = state.allocated
+      local old_buffer = state.buffer
+      state.allocated = state.allocated*2
+      state.buffer = love.data.newByteData(state.allocated*12)
+      state.p_buffer = ffi.cast("uint8_t*", state.buffer:getFFIPointer())
+      ffi.copy(state.p_buffer, old_buffer:getFFIPointer(), old_allocated*12)
+      old_buffer:release()
+    end
+    local v_cindex = state.used
+    state.used = state.used+8
+    -- do recursion
+    local ssize = size/2
+    recursive_fill(self, state, w_cindex, v_cindex, vnode[0], x, y, z, ssize)
+    recursive_fill(self, state, w_cindex+1, v_cindex+1, vnode[1], x, y, z+ssize, ssize)
+    recursive_fill(self, state, w_cindex+2, v_cindex+2, vnode[2], x, y+ssize, z, ssize)
+    recursive_fill(self, state, w_cindex+3, v_cindex+3, vnode[3], x, y+ssize, z+ssize, ssize)
+    recursive_fill(self, state, w_cindex+4, v_cindex+4, vnode[4], x+ssize, y, z, ssize)
+    recursive_fill(self, state, w_cindex+5, v_cindex+5, vnode[5], x+ssize, y, z+ssize, ssize)
+    recursive_fill(self, state, w_cindex+6, v_cindex+6, vnode[6], x+ssize, y+ssize, z, ssize)
+    recursive_fill(self, state, w_cindex+7, v_cindex+7, vnode[7], x+ssize, y+ssize, z+ssize, ssize)
+  end
+end
+
+-- Update view SVO from world SVO (step).
+-- x,y,z: view center (meters)
+-- min_dist: the LOD decreases beyond this distance (meters)
+-- leaf_lod_level: maximum LOD to track, all blocks are loaded beyond it
+function world:updateView(x, y, z, min_dist, leaf_lod_level)
+  local state = {
+    x = x, y = y, z = z,
+    min_dist = min_dist,
+    leaf_lod_level = leaf_lod_level
+  }
+  -- build view update buffer
+  state.allocated = 64
+  state.used = 1
+  state.buffer = love.data.newByteData(state.allocated*12)
+  state.p_buffer = ffi.cast("uint8_t*", state.buffer:getFFIPointer())
+
+  recursive_update_view(self, state, 0, 0, self.view_tree, -size/2, -size/2, -size/2, size)
 end
 
 return world
